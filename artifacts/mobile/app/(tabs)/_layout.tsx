@@ -1,72 +1,111 @@
-import { BlurView } from "expo-blur";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { Tabs } from "expo-router";
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
-import { SymbolView } from "expo-symbols";
-import { Feather } from "@expo/vector-icons";
-import React from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { BlurView } from 'expo-blur';
+import { isLiquidGlassAvailable } from 'expo-glass-effect';
+import { Tabs } from 'expo-router';
+import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
+import { SymbolView } from 'expo-symbols';
+import { Feather } from '@expo/vector-icons';
+import React from 'react';
+import { Platform, StyleSheet, useColorScheme, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Colors from '@/constants/colors';
 
-import Colors from "@/constants/colors";
-
-//IMPORTANT: iOS 26 Exists, feel free to use NativeTabs for native tabs with liquid glass support.
 function NativeTabLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
+        <Icon sf={{ default: 'chart.bar', selected: 'chart.bar.fill' }} />
+        <Label>Dashboard</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="settings">
+        <Icon sf={{ default: 'slider.horizontal.3', selected: 'slider.horizontal.3' }} />
+        <Label>Apps</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="focus-zones">
+        <Icon sf={{ default: 'clock', selected: 'clock.fill' }} />
+        <Label>Focus Zones</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="limits">
+        <Icon sf={{ default: 'hourglass', selected: 'hourglass.tophalf.filled' }} />
+        <Label>Limits</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
 
 function ClassicTabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const isIOS = Platform.OS === "ios";
-  const isWeb = Platform.OS === "web";
+  const isDark = true;
+  const isIOS = Platform.OS === 'ios';
+  const isWeb = Platform.OS === 'web';
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.light.tint,
-        tabBarInactiveTintColor: Colors.light.tabIconDefault,
-        headerShown: true,
+        headerShown: false,
+        tabBarActiveTintColor: Colors.accent,
+        tabBarInactiveTintColor: Colors.textTertiary,
         tabBarStyle: {
-          position: "absolute",
-          backgroundColor: isIOS ? "transparent" : isDark ? "#000" : "#fff",
-          borderTopWidth: isWeb ? 1 : 0,
-          borderTopColor: isDark ? "#333" : "#ccc",
+          position: 'absolute',
+          backgroundColor: isIOS ? 'transparent' : Colors.tabBar,
+          borderTopWidth: 1,
+          borderTopColor: Colors.tabBarBorder,
           elevation: 0,
+          paddingBottom: isWeb ? 0 : insets.bottom,
           ...(isWeb ? { height: 84 } : {}),
         },
         tabBarBackground: () =>
           isIOS ? (
-            <BlurView
-              intensity={100}
-              tint={isDark ? "dark" : "light"}
-              style={StyleSheet.absoluteFill}
-            />
+            <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
           ) : isWeb ? (
-            <View
-              style={[
-                StyleSheet.absoluteFill,
-                { backgroundColor: isDark ? "#000" : "#fff" },
-              ]}
-            />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: Colors.tabBar }]} />
           ) : null,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
+          title: 'Dashboard',
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="house" tintColor={color} size={24} />
+              <SymbolView name="chart.bar.fill" tintColor={color} size={22} />
             ) : (
-              <Feather name="home" size={22} color={color} />
+              <Feather name="bar-chart-2" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Apps',
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="slider.horizontal.3" tintColor={color} size={22} />
+            ) : (
+              <Feather name="sliders" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="focus-zones"
+        options={{
+          title: 'Focus Zones',
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="clock.fill" tintColor={color} size={22} />
+            ) : (
+              <Feather name="clock" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="limits"
+        options={{
+          title: 'Limits',
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="hourglass" tintColor={color} size={22} />
+            ) : (
+              <Feather name="activity" size={22} color={color} />
             ),
         }}
       />
