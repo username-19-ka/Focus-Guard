@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   Platform,
@@ -15,33 +15,29 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  interpolate,
-  Extrapolation,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
+import {
+  checkOverlayPermission,
+  checkUsagePermission,
+  markOverlayGranted,
+  markUsageGranted,
+  openOverlaySettings,
+  openUsageAccessSettings,
+  subscribeToAppForeground,
+} from '@/lib/PermissionService';
 import Colors from '@/constants/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const UNLOCK_PARAGRAPH = `1HtRVjuIFexyllvdtriRCex197403367cfrCdeVTRjdeeojE4SIJdrrikEYOKNrseu4436_FDiufd543hgI8YRERIUGD5yioh_ç-(-'"hggfthGYS`;
-
-const PAGES = [
-  { id: 0 },
-  { id: 1 },
-  { id: 2 },
-];
+const PAGE_COUNT = 3;
 
 function DotIndicator({ count, activeIndex }: { count: number; activeIndex: number }) {
   return (
     <View style={styles.dotsRow}>
       {Array.from({ length: count }).map((_, i) => (
-        <View
-          key={i}
-          style={[
-            styles.dot,
-            i === activeIndex && styles.dotActive,
-          ]}
-        />
+        <View key={i} style={[styles.dot, i === activeIndex && styles.dotActive]} />
       ))}
     </View>
   );
@@ -55,7 +51,8 @@ function PageIntro() {
       </View>
       <Text style={styles.pageTitle}>Take Back{'\n'}Your Time.</Text>
       <Text style={styles.pageSubtitle}>
-        FocusGuard puts you back in control of your digital life. Set limits, build schedules, and stay locked in — on your terms.
+        FocusGuard puts you back in control of your digital life. Set limits,
+        build schedules, and stay locked in — on your terms.
       </Text>
       <View style={styles.featureList}>
         {[
@@ -83,7 +80,8 @@ function PageChallenge() {
       </View>
       <Text style={styles.pageTitle}>The{'\n'}Challenge.</Text>
       <Text style={styles.pageSubtitle}>
-        When you hit a limit, there's no easy "just 5 more minutes." To unlock any blocked app, you must type this entire paragraph — perfectly.
+        When you hit a limit, there's no easy "just 5 more minutes." To unlock
+        any blocked app, you must type this entire paragraph — perfectly.
       </Text>
       <View style={styles.unlockPreview}>
         <Text style={styles.unlockLabel}>Your unlock code</Text>
@@ -101,23 +99,146 @@ function PageChallenge() {
   );
 }
 
-function PagePermissions() {
-  const [usageEnabled, setUsageEnabled] = useState(false);
-  const [overlayEnabled, setOverlayEnabled] = useState(false);
+interface PermissionRowProps {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  granted: boolean;
+  pending: boolean;
+  buttonLabel: string;
+  onPress: () => void;
+}
 
-  const usageScale = useSharedValue(1);
-  const overlayScale = useSharedValue(1);
+function PermissionRow({
+  icon,
+  title,
+  description,
+  granted,
+  pending,
+  buttonLabel,
+  onPress,
+}: PermissionRowProps) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
-  const animateToggle = (sv: Animated.SharedValue<number>, toggle: () => void) => {
-    sv.value = withSpring(0.95, { damping: 15 }, () => {
-      sv.value = withSpring(1, { damping: 15 });
+  const handlePress = () => {
+    scale.value = withSpring(0.95, { damping: 15 }, () => {
+      scale.value = withSpring(1, { damping: 15 });
     });
-    toggle();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
   };
 
-  const usageStyle = useAnimatedStyle(() => ({ transform: [{ scale: usageScale.value }] }));
-  const overlayStyle = useAnimatedStyle(() => ({ transform: [{ scale: overlayScale.value }] }));
+  return (
+    <View style={styles.permissionRow}>
+      <View style={styles.permissionMeta}>
+        <View
+          style={[
+            styles.permIconWrap,
+            granted ? { backgroundColor: Colors.successMuted } : undefined,
+          ]}
+        >
+          {granted
+            ? <Feather name="check-circle" size={20} color={Colors.success} />
+            : icon}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.permissionName}>{title}</Text>
+          <Text style={styles.permissionDesc}>{description}</Text>
+        </View>
+      </View>
+
+      <Animated.View style={animStyle}>
+        <Pressable
+          onPress={handlePress}
+          disabled={granted}
+          style={[
+            styles.permButton,
+            granted && styles.permButtonGranted,
+            pending && !granted && styles.permButtonPending,
+          ]}
+        >
+          {granted ? (
+            <Text style={[styles.permButtonText, styles.permButtonTextGranted]}>
+              Granted
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.permButtonText}>{buttonLabel}</Text>
+              <Feather name="external-link" size={13} color={Colors.accent} />
+            </>
+          )}
+        </Pressable>
+      </Animated.View>
+    </View>
+  );
+}
+
+interface PagePermissionsProps {
+  onPermissionsChange: (usage: boolean, overlay: boolean) => void;
+}
+
+function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
+  const [usageGranted, setUsageGranted] = useState(false);
+  const [overlayGranted, setOverlayGranted] = useState(false);
+  const [usagePending, setUsagePending] = useState(false);
+  const [overlayPending, setOverlayPending] = useState(false);
+
+  const isAndroid = Platform.OS === 'android';
+
+  const recheck = useCallback(async () => {
+    const [usage, overlay] = await Promise.all([
+      checkUsagePermission(),
+      checkOverlayPermission(),
+    ]);
+
+    if (usagePending && !usage) {
+      await markUsageGranted();
+      setUsageGranted(true);
+      setUsagePending(false);
+      onPermissionsChange(true, overlay || overlayGranted);
+    } else if (usage) {
+      setUsageGranted(true);
+      setUsagePending(false);
+    }
+
+    if (overlayPending && !overlay) {
+      await markOverlayGranted();
+      setOverlayGranted(true);
+      setOverlayPending(false);
+      onPermissionsChange(usage || usageGranted, true);
+    } else if (overlay) {
+      setOverlayGranted(true);
+      setOverlayPending(false);
+    }
+  }, [usagePending, overlayPending, usageGranted, overlayGranted, onPermissionsChange]);
+
+  useEffect(() => {
+    (async () => {
+      const [usage, overlay] = await Promise.all([
+        checkUsagePermission(),
+        checkOverlayPermission(),
+      ]);
+      setUsageGranted(usage);
+      setOverlayGranted(overlay);
+      onPermissionsChange(usage, overlay);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToAppForeground(recheck);
+    return unsub;
+  }, [recheck]);
+
+  const handleUsagePress = async () => {
+    setUsagePending(true);
+    await openUsageAccessSettings();
+  };
+
+  const handleOverlayPress = async () => {
+    setOverlayPending(true);
+    await openOverlaySettings();
+  };
 
   return (
     <View style={styles.page}>
@@ -126,51 +247,51 @@ function PagePermissions() {
       </View>
       <Text style={styles.pageTitle}>Permissions{'\n'}Needed.</Text>
       <Text style={styles.pageSubtitle}>
-        FocusGuard needs two permissions to block apps and track your usage. Grant them on your device settings.
+        FocusGuard needs two Android system permissions to detect and block
+        apps. Tap each button and grant access on the settings page that opens.
       </Text>
+
+      {!isAndroid && (
+        <View style={styles.webNotice}>
+          <Feather name="info" size={14} color={Colors.blue} />
+          <Text style={styles.webNoticeText}>
+            Android permissions are not required on this platform.
+          </Text>
+        </View>
+      )}
+
       <View style={styles.permissionsCard}>
-        <Animated.View style={usageStyle}>
-          <Pressable
-            style={styles.permissionRow}
-            onPress={() => animateToggle(usageScale, () => setUsageEnabled(v => !v))}
-          >
-            <View style={styles.permissionLeft}>
-              <View style={[styles.permIconWrap, { backgroundColor: Colors.accentMuted }]}>
-                <Ionicons name="stats-chart" size={20} color={Colors.accent} />
-              </View>
-              <View>
-                <Text style={styles.permissionName}>Usage Stats</Text>
-                <Text style={styles.permissionDesc}>See which apps you use most</Text>
-              </View>
-            </View>
-            <View style={[styles.toggle, usageEnabled && styles.toggleActive]}>
-              <View style={[styles.toggleThumb, usageEnabled && styles.toggleThumbActive]} />
-            </View>
-          </Pressable>
-        </Animated.View>
+        <PermissionRow
+          icon={<Ionicons name="stats-chart" size={20} color={Colors.accent} />}
+          title="Usage Stats Access"
+          description="Detect which apps are running"
+          granted={usageGranted}
+          pending={usagePending}
+          buttonLabel="Grant Usage Access"
+          onPress={handleUsagePress}
+        />
 
         <View style={styles.permissionDivider} />
 
-        <Animated.View style={overlayStyle}>
-          <Pressable
-            style={styles.permissionRow}
-            onPress={() => animateToggle(overlayScale, () => setOverlayEnabled(v => !v))}
-          >
-            <View style={styles.permissionLeft}>
-              <View style={[styles.permIconWrap, { backgroundColor: Colors.blueMuted }]}>
-                <Ionicons name="layers" size={20} color={Colors.blue} />
-              </View>
-              <View>
-                <Text style={styles.permissionName}>Overlay Permission</Text>
-                <Text style={styles.permissionDesc}>Show blocker over other apps</Text>
-              </View>
-            </View>
-            <View style={[styles.toggle, overlayEnabled && styles.toggleActive]}>
-              <View style={[styles.toggleThumb, overlayEnabled && styles.toggleThumbActive]} />
-            </View>
-          </Pressable>
-        </Animated.View>
+        <PermissionRow
+          icon={<Ionicons name="layers" size={20} color={Colors.blue} />}
+          title="Display Over Apps"
+          description="Show the blocker lock screen"
+          granted={overlayGranted}
+          pending={overlayPending}
+          buttonLabel="Enable Overlay"
+          onPress={handleOverlayPress}
+        />
       </View>
+
+      {(!usageGranted || !overlayGranted) && isAndroid && (
+        <View style={styles.hintRow}>
+          <Feather name="alert-circle" size={13} color={Colors.textTertiary} />
+          <Text style={styles.hintText}>
+            Grant both permissions to unlock the Finish button.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -179,26 +300,46 @@ export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const [currentPage, setCurrentPage] = useState(0);
+  const [usageGranted, setUsageGranted] = useState(Platform.OS !== 'android');
+  const [overlayGranted, setOverlayGranted] = useState(Platform.OS !== 'android');
+
+  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
+
+  const isLastPage = currentPage === PAGE_COUNT - 1;
+  const bothGranted = usageGranted && overlayGranted;
+  const finishDisabled = isLastPage && !bothGranted;
+
+  const handlePermissionsChange = useCallback((usage: boolean, overlay: boolean) => {
+    setUsageGranted(usage);
+    setOverlayGranted(overlay);
+  }, []);
 
   const handleNext = async () => {
+    if (finishDisabled) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (currentPage < PAGES.length - 1) {
-      const nextPage = currentPage + 1;
-      scrollRef.current?.scrollTo({ x: nextPage * SCREEN_WIDTH, animated: true });
-      setCurrentPage(nextPage);
+    if (currentPage < PAGE_COUNT - 1) {
+      const next = currentPage + 1;
+      scrollRef.current?.scrollTo({ x: next * SCREEN_WIDTH, animated: true });
+      setCurrentPage(next);
     } else {
       await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
       router.replace('/auth');
     }
   };
 
+  const handleSkip = async () => {
+    await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
+    router.replace('/auth');
+  };
+
   const handleScroll = (e: any) => {
     const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     setCurrentPage(page);
   };
-
-  const topPad = Platform.OS === 'web' ? 67 : insets.top;
-  const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
@@ -218,30 +359,33 @@ export default function OnboardingScreen() {
           <PageChallenge />
         </View>
         <View style={{ width: SCREEN_WIDTH }}>
-          <PagePermissions />
+          <PagePermissions onPermissionsChange={handlePermissionsChange} />
         </View>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: bottomPad + 16 }]}>
-        <DotIndicator count={PAGES.length} activeIndex={currentPage} />
+        <DotIndicator count={PAGE_COUNT} activeIndex={currentPage} />
+
         <Pressable
-          style={({ pressed }) => [styles.nextButton, pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] }]}
+          style={({ pressed }) => [
+            styles.nextButton,
+            finishDisabled && styles.nextButtonDisabled,
+            !finishDisabled && pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
+          ]}
           onPress={handleNext}
         >
-          <Text style={styles.nextButtonText}>
-            {currentPage === PAGES.length - 1 ? "Let's Go" : 'Continue'}
+          <Text style={[styles.nextButtonText, finishDisabled && styles.nextButtonTextDisabled]}>
+            {isLastPage ? (bothGranted ? "Let's Go" : 'Grant Both Permissions') : 'Continue'}
           </Text>
           <Feather
-            name={currentPage === PAGES.length - 1 ? 'check' : 'arrow-right'}
+            name={isLastPage ? (bothGranted ? 'check' : 'lock') : 'arrow-right'}
             size={18}
-            color={Colors.background}
+            color={finishDisabled ? Colors.textTertiary : Colors.background}
           />
         </Pressable>
-        {currentPage < PAGES.length - 1 && (
-          <Pressable onPress={async () => {
-            await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
-            router.replace('/auth');
-          }}>
+
+        {!isLastPage && (
+          <Pressable onPress={handleSkip}>
             <Text style={styles.skipText}>Skip</Text>
           </Pressable>
         )}
@@ -282,7 +426,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.textSecondary,
     lineHeight: 26,
-    marginBottom: 28,
+    marginBottom: 24,
   },
   featureList: {
     gap: 12,
@@ -346,6 +490,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.warning,
   },
+  webNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.blueMuted,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+    width: '100%',
+  },
+  webNoticeText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.blue,
+    flex: 1,
+  },
   permissionsCard: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
@@ -355,21 +516,19 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   permissionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     padding: 16,
+    gap: 12,
   },
-  permissionLeft: {
+  permissionMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    flex: 1,
   },
   permIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: Colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -377,37 +536,59 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     fontSize: 15,
     color: Colors.text,
+    marginBottom: 2,
   },
   permissionDesc: {
     fontFamily: 'Inter_400Regular',
     fontSize: 13,
     color: Colors.textSecondary,
   },
+  permButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: Colors.accent,
+    backgroundColor: Colors.accentMuted,
+  },
+  permButtonGranted: {
+    borderColor: Colors.success,
+    backgroundColor: Colors.successMuted,
+  },
+  permButtonPending: {
+    borderColor: Colors.warning,
+    backgroundColor: Colors.warningMuted,
+  },
+  permButtonText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    color: Colors.accent,
+  },
+  permButtonTextGranted: {
+    color: Colors.success,
+  },
   permissionDivider: {
     height: 1,
     backgroundColor: Colors.borderSubtle,
-    marginLeft: 68,
+    marginHorizontal: 16,
   },
-  toggle: {
-    width: 48,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.border,
-    padding: 2,
-    justifyContent: 'center',
+  hintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
+    paddingHorizontal: 4,
   },
-  toggleActive: {
-    backgroundColor: Colors.accent,
-  },
-  toggleThumb: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.textSecondary,
-  },
-  toggleThumbActive: {
-    backgroundColor: Colors.background,
-    alignSelf: 'flex-end',
+  hintText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.textTertiary,
+    flex: 1,
+    lineHeight: 20,
   },
   footer: {
     paddingHorizontal: 28,
@@ -439,10 +620,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  nextButtonDisabled: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
   nextButtonText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 16,
     color: Colors.background,
+  },
+  nextButtonTextDisabled: {
+    color: Colors.textTertiary,
   },
   skipText: {
     fontFamily: 'Inter_500Medium',
