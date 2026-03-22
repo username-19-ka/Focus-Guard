@@ -1,5 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import { useDashboardStore } from '@/store/dashboardStore';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -28,6 +28,7 @@ type Props = {
 
 export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
   const insets = useSafeAreaInsets();
+  const { incrementShame } = useDashboardStore();
   const [typed, setTyped] = useState('');
   const [shakeAnim] = useState(new Animated.Value(0));
   const [progress, setProgress] = useState(0);
@@ -83,9 +84,7 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
     setUnlocking(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    const count = await AsyncStorage.getItem('wallOfShameCount');
-    const current = count ? parseInt(count, 10) : 0;
-    await AsyncStorage.setItem('wallOfShameCount', (current + 1).toString());
+    await incrementShame(appName);
 
     Animated.sequence([
       Animated.timing(shieldScale, { toValue: 1.2, duration: 200, useNativeDriver: true }),
