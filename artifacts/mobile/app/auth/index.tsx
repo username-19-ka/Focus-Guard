@@ -127,6 +127,15 @@ export default function AuthScreen() {
               </Pressable>
             </View>
 
+            {mode === 'signin' && (
+              <Pressable
+                onPress={() => router.push('/auth/forgot-password')}
+                style={styles.forgotWrap}
+              >
+                <Text style={styles.forgotText}>Forgot Password?</Text>
+              </Pressable>
+            )}
+
             {error ? (
               <View style={styles.errorBox}>
                 <Feather name="alert-circle" size={14} color={Colors.danger} />
@@ -269,6 +278,15 @@ const styles = StyleSheet.create({
   },
   eyeBtn: {
     paddingLeft: 8,
+  },
+  forgotWrap: {
+    alignSelf: 'flex-end',
+    marginTop: -4,
+  },
+  forgotText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 13,
+    color: Colors.accent,
   },
   errorBox: {
     flexDirection: 'row',
