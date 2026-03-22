@@ -8,6 +8,7 @@
     "scheme": "focusguard",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "jsEngine": "hermes",
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -19,6 +20,7 @@
     },
     "android": {
       "package": "com.focusguard.app",
+      "jsEngine": "hermes",
       "permissions": [
         "PACKAGE_USAGE_STATS",
         "SYSTEM_ALERT_WINDOW",
@@ -51,6 +53,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0166ad07-37d7-4a42-a6e0-36e28497037d"
+      }
     }
   }
 }
