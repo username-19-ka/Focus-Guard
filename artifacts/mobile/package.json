@@ -57,6 +57,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.3",
+    "expo-build-properties": "^55.0.10",
     "zustand": "^5.0.12"
   }
 }
