@@ -23,19 +23,13 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
-import { useDashboardStore } from '@/store/dashboardStore';
+import { useDashboardStore, MappedApp } from '@/store/dashboardStore';
+import { openUsageAccessSettings } from '@/lib/UsageStatsService';
 import FocusRing from '@/components/FocusRing';
 import WeeklyBarChart from '@/components/WeeklyBarChart';
 import Colors from '@/constants/colors';
 
 const { width: W } = Dimensions.get('window');
-
-const MOCK_APPS = [
-  { name: 'Instagram', icon: 'logo-instagram', color: '#E1306C', usage: 87, limit: 60 },
-  { name: 'TikTok', icon: 'logo-tiktok', color: '#69C9D0', usage: 45, limit: 30 },
-  { name: 'Twitter / X', icon: 'logo-twitter', color: '#1DA1F2', usage: 28, limit: 45 },
-  { name: 'YouTube', icon: 'logo-youtube', color: '#FF0000', usage: 62, limit: 90 },
-];
 
 function minutesToDisplay(mins: number) {
   const h = Math.floor(mins / 60);
@@ -302,8 +296,8 @@ function LeaderboardSection() {
   );
 }
 
-function AppUsageRow({ app }: { app: typeof MOCK_APPS[0] }) {
-  const pct = Math.min(app.usage / app.limit, 1);
+function AppUsageRow({ app }: { app: MappedApp }) {
+  const pct = Math.min(app.usage / Math.max(app.limit, 1), 1);
   const over = app.usage > app.limit;
   const barColor = over ? Colors.danger : pct > 0.8 ? Colors.warning : Colors.accent;
 
@@ -314,9 +308,16 @@ function AppUsageRow({ app }: { app: typeof MOCK_APPS[0] }) {
       </View>
       <View style={{ flex: 1, gap: 6 }}>
         <View style={styles.appRowTop}>
-          <Text style={styles.appName}>{app.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.appName}>{app.name}</Text>
+            {app.isRealData && (
+              <View style={styles.liveIndicator}>
+                <Text style={styles.liveIndicatorText}>LIVE</Text>
+              </View>
+            )}
+          </View>
           <Text style={[styles.appUsage, over && { color: Colors.danger }]}>
-            {app.usage}m / {app.limit}m
+            {minutesToDisplay(app.usage)} / {app.limit}m
           </Text>
         </View>
         <View style={styles.progressTrack}>
@@ -330,7 +331,10 @@ function AppUsageRow({ app }: { app: typeof MOCK_APPS[0] }) {
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
-  const { init, syncFromSupabase, getShareText, isSyncing } = useDashboardStore();
+  const {
+    init, syncFromSupabase, getShareText, isSyncing,
+    topApps, usagePermissionGranted, isLoadingUsage, refreshUsageStats,
+  } = useDashboardStore();
   const [refreshing, setRefreshing] = useState(false);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -344,8 +348,11 @@ export default function DashboardScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await init();
-    if (user?.id) await syncFromSupabase(user.id);
+    await Promise.all([
+      init(),
+      refreshUsageStats(),
+      user?.id ? syncFromSupabase(user.id) : Promise.resolve(),
+    ]);
     setRefreshing(false);
   }, [user?.id]);
 
@@ -418,17 +425,40 @@ export default function DashboardScreen() {
       <LeaderboardSection />
 
       <View style={[styles.sectionSpacer, styles.sectionSpacerRow]}>
-        <Text style={styles.sectionTitle}>App Usage Today</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={styles.sectionTitle}>App Usage Today</Text>
+          {isLoadingUsage && (
+            <View style={styles.loadingDot} />
+          )}
+        </View>
         <Pressable onPress={() => router.push('/(tabs)/limits')} hitSlop={8}>
           <Text style={styles.seeAll}>Manage</Text>
         </Pressable>
       </View>
 
+      {Platform.OS === 'android' && !usagePermissionGranted && (
+        <Pressable
+          style={styles.permissionBanner}
+          onPress={async () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            await openUsageAccessSettings();
+            setTimeout(() => refreshUsageStats(), 1500);
+          }}
+        >
+          <Ionicons name="shield-half" size={18} color={Colors.warning} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.permissionBannerTitle}>Usage Access required for real data</Text>
+            <Text style={styles.permissionBannerSub}>Tap to open Android settings and grant access</Text>
+          </View>
+          <Feather name="chevron-right" size={16} color={Colors.warning} />
+        </Pressable>
+      )}
+
       <View style={styles.appsCard}>
-        {MOCK_APPS.map((app, i) => (
-          <React.Fragment key={app.name}>
+        {topApps.map((app, i) => (
+          <React.Fragment key={app.packageName}>
             <AppUsageRow app={app} />
-            {i < MOCK_APPS.length - 1 && <View style={styles.rowDivider} />}
+            {i < topApps.length - 1 && <View style={styles.rowDivider} />}
           </React.Fragment>
         ))}
       </View>
@@ -922,6 +952,49 @@ const styles = StyleSheet.create({
   },
   appName: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: Colors.text },
   appUsage: { fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary },
+  liveIndicator: {
+    backgroundColor: Colors.accentMuted,
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  liveIndicatorText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 9,
+    color: Colors.accent,
+    letterSpacing: 0.5,
+  },
+  loadingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Colors.accent,
+    opacity: 0.7,
+  },
+  permissionBanner: {
+    marginHorizontal: 20,
+    marginBottom: 10,
+    backgroundColor: Colors.warningMuted,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.warning + '44',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  permissionBannerTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: Colors.warning,
+  },
+  permissionBannerSub: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    color: Colors.warning + 'BB',
+    marginTop: 1,
+  },
   progressTrack: {
     height: 4,
     backgroundColor: Colors.border,

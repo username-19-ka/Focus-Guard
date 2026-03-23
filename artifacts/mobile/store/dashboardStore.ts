@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
+import { queryLast24hStats, isUsagePermissionGranted } from '@/lib/UsageStatsService';
+import { getAppInfo } from '@/lib/AppNameMapper';
 
 export interface ShameEntry {
   id: string;
@@ -8,6 +10,25 @@ export interface ShameEntry {
   time: string;
   date: string;
 }
+
+export interface MappedApp {
+  packageName: string;
+  name: string;
+  icon: string;
+  color: string;
+  usage: number;
+  limit: number;
+  isRealData: boolean;
+}
+
+const DEFAULT_LIMIT = 60;
+
+const DEFAULT_TOP_APPS: MappedApp[] = [
+  { packageName: 'com.instagram.android',     name: 'Instagram',  icon: 'logo-instagram', color: '#E1306C', usage: 87, limit: 60, isRealData: false },
+  { packageName: 'com.zhiliaoapp.musically',  name: 'TikTok',     icon: 'play-circle',    color: '#69C9D0', usage: 45, limit: 30, isRealData: false },
+  { packageName: 'com.twitter.android',       name: 'X (Twitter)',icon: 'logo-twitter',   color: '#1DA1F2', usage: 28, limit: 45, isRealData: false },
+  { packageName: 'com.google.android.youtube',name: 'YouTube',    icon: 'logo-youtube',   color: '#FF0000', usage: 62, limit: 90, isRealData: false },
+];
 
 interface DashboardState {
   timeSavedMinutes: number;
@@ -27,6 +48,10 @@ interface DashboardState {
   lastSynced: Date | null;
   isInitialized: boolean;
 
+  topApps: MappedApp[];
+  usagePermissionGranted: boolean;
+  isLoadingUsage: boolean;
+
   init: () => Promise<void>;
   incrementShame: (appName?: string) => Promise<void>;
   toggleLeaderboard: () => void;
@@ -34,6 +59,7 @@ interface DashboardState {
   syncFromSupabase: (userId: string) => Promise<void>;
   syncToSupabase: (userId: string) => Promise<void>;
   getShareText: () => string;
+  refreshUsageStats: () => Promise<void>;
 }
 
 const STORAGE_KEYS = {
@@ -85,6 +111,10 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   lastSynced: null,
   isInitialized: false,
 
+  topApps: DEFAULT_TOP_APPS,
+  usagePermissionGranted: false,
+  isLoadingUsage: false,
+
   init: async () => {
     if (get().isInitialized) return;
 
@@ -116,6 +146,52 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       focusModeActive: focusModeStr === 'true',
       isInitialized: true,
     });
+
+    get().refreshUsageStats();
+  },
+
+  refreshUsageStats: async () => {
+    set({ isLoadingUsage: true });
+    try {
+      const granted = await isUsagePermissionGranted();
+      set({ usagePermissionGranted: granted });
+
+      const stats = await queryLast24hStats();
+      const topApps: MappedApp[] = stats.slice(0, 6).map(s => {
+        const info = getAppInfo(s.packageName);
+        return {
+          packageName: s.packageName,
+          name: info.name,
+          icon: info.icon,
+          color: info.color,
+          usage: s.totalTimeMinutes,
+          limit: DEFAULT_LIMIT,
+          isRealData: granted,
+        };
+      });
+
+      if (topApps.length > 0) {
+        const totalUsageMinutes = stats.reduce((sum, s) => sum + s.totalTimeMinutes, 0);
+        const wakeMinutes = 16 * 60;
+        const focusRatioPercent = Math.round(
+          Math.max(0, Math.min(100, ((wakeMinutes - totalUsageMinutes) / wakeMinutes) * 100)),
+        );
+        const timeSavedMinutes = Math.max(0, get().beforeDailyMinutes - totalUsageMinutes);
+
+        set({
+          topApps,
+          afterDailyMinutes: totalUsageMinutes,
+          focusRatioPercent,
+          timeSavedMinutes,
+        });
+      } else {
+        set({ topApps: DEFAULT_TOP_APPS.map(a => ({ ...a, isRealData: false })) });
+      }
+    } catch (err) {
+      console.warn('[Dashboard] refreshUsageStats error:', err);
+    } finally {
+      set({ isLoadingUsage: false });
+    }
   },
 
   incrementShame: async (appName = 'Unknown App') => {
