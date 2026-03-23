@@ -2,6 +2,7 @@
   "expo": {
     "name": "FocusGuard",
     "slug": "mobile",
+    "owner": "karimato",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -57,7 +58,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "0166ad07-37d7-4a42-a6e0-36e28497037d"
+        "projectId": "c8b3a279-0e36-4c85-bf26-76e3992ff298"
       }
     }
   }

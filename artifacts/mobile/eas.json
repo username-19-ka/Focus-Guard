@@ -5,6 +5,7 @@
   },
   "build": {
     "preview": {
+      "node": "20.18.0",
       "android": {
         "buildType": "apk"
       },
@@ -14,6 +15,7 @@
       }
     },
     "production": {
+      "node": "20.18.0",
       "android": {
         "buildType": "app-bundle"
       },
