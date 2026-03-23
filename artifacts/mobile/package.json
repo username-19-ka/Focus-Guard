@@ -56,6 +56,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@brighthustle/react-native-usage-stats-manager": "^0.1.5",
     "@supabase/supabase-js": "^2.99.3",
     "expo-build-properties": "^1.0.10",
     "expo-intent-launcher": "^13.0.8",

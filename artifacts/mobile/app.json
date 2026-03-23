@@ -23,6 +23,7 @@
       "jsEngine": "hermes",
       "permissions": [
         "PACKAGE_USAGE_STATS",
+        "QUERY_ALL_PACKAGES",
         "SYSTEM_ALERT_WINDOW",
         "FOREGROUND_SERVICE",
         "WAKE_LOCK",
