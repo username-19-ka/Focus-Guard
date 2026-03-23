@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "c8b3a279-0e36-4c85-bf26-76e3992ff298"
+      }
+    },
+    "android": {
+      "package": "com.karimato.workspace"
+    }
+  }
+}
