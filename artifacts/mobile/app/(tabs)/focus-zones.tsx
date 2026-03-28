@@ -140,7 +140,38 @@ function ZoneCard({ zone, onToggle, onEdit, onDelete }: {
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const [confirming, setConfirming] = useState(false);
   const activeDays = zone.days.map(d => DAYS[d]).join('  ');
+
+  if (confirming) {
+    return (
+      <View style={[styles.zoneCard, styles.zoneCardConfirm]}>
+        <View style={[styles.zoneStripe, { backgroundColor: Colors.danger }]} />
+        <View style={[styles.zoneBody, { justifyContent: 'center', gap: 12 }]}>
+          <Text style={styles.confirmTitle}>Delete "{zone.name}"?</Text>
+          <Text style={styles.confirmSub}>This schedule will be permanently removed.</Text>
+          <View style={styles.confirmRow}>
+            <Pressable
+              onPress={() => setConfirming(false)}
+              style={styles.confirmCancelBtn}
+            >
+              <Text style={styles.confirmCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                onDelete();
+              }}
+              style={styles.confirmDeleteBtn}
+            >
+              <Feather name="trash-2" size={13} color={Colors.danger} />
+              <Text style={styles.confirmDeleteText}>Delete</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.zoneCard}>
@@ -152,7 +183,7 @@ function ZoneCard({ zone, onToggle, onEdit, onDelete }: {
             <Pressable onPress={onEdit} hitSlop={8} style={styles.zoneActionBtn}>
               <Feather name="edit-2" size={15} color={Colors.textTertiary} />
             </Pressable>
-            <Pressable onPress={onDelete} hitSlop={12} style={styles.zoneActionBtn}>
+            <Pressable onPress={() => setConfirming(true)} hitSlop={12} style={styles.zoneActionBtn}>
               <Feather name="trash-2" size={15} color={Colors.danger} />
             </Pressable>
             <Pressable onPress={onToggle} hitSlop={6}>
@@ -387,21 +418,7 @@ export default function FocusZonesScreen() {
   };
 
   const handleDelete = (id: string) => {
-    Alert.alert(
-      'Delete Zone',
-      'This focus schedule will be permanently removed.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            setDeletingId(id);
-          },
-        },
-      ],
-    );
+    setDeletingId(id);
   };
 
   const handleExited = (id: string) => {
@@ -507,6 +524,53 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.accent,
     marginTop: 2,
+  },
+  zoneCardConfirm: {
+    borderColor: Colors.danger + '55',
+  },
+  confirmTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 14,
+    color: Colors.text,
+  },
+  confirmSub: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: -6,
+  },
+  confirmRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.surfaceElevated,
+    alignItems: 'center',
+  },
+  confirmCancelText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  confirmDeleteBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.dangerMuted,
+    borderWidth: 1,
+    borderColor: Colors.danger + '44',
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  confirmDeleteText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 14,
+    color: Colors.danger,
   },
   toggle: {
     width: 44, height: 26, borderRadius: 13,
