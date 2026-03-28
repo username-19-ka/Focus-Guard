@@ -4,7 +4,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
-  FlatList,
   Platform,
   Pressable,
   ScrollView,
@@ -98,16 +97,16 @@ function AppBlockSelector({ selected, onToggle }: {
   onToggle: (pkg: string) => void;
 }) {
   return (
-    <FlatList
-      data={MOCK_BLOCKABLE_APPS}
-      keyExtractor={item => item.packageName}
+    <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.appSelectorList}
-      renderItem={({ item }) => {
+    >
+      {MOCK_BLOCKABLE_APPS.map(item => {
         const isSelected = selected.includes(item.packageName);
         return (
           <Pressable
+            key={item.packageName}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onToggle(item.packageName);
@@ -130,8 +129,8 @@ function AppBlockSelector({ selected, onToggle }: {
             )}
           </Pressable>
         );
-      }}
-    />
+      })}
+    </ScrollView>
   );
 }
 
