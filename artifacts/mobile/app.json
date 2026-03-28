@@ -52,7 +52,8 @@
             "minSdkVersion": 24
           }
         }
-      ]
+      ],
+      "./plugins/withUsageStatsManagerFix"
     ],
     "experiments": {
       "typedRoutes": true
