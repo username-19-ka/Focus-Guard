@@ -1,16 +1,44 @@
+/**
+ * Tab layout — supports both the classic cross-platform Tabs navigator
+ * and the iOS 26+ LiquidGlass native tabs.
+ *
+ * iOS-only modules (expo-symbols, expo-router/unstable-native-tabs,
+ * expo-glass-effect) are loaded with conditional require() inside functions
+ * so they are NEVER evaluated at bundle time on Android.
+ */
+
 import { BlurView } from 'expo-blur';
-import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Tabs } from 'expo-router';
-import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
-import { SymbolView } from 'expo-symbols';
 import { Feather } from '@expo/vector-icons';
 import React from 'react';
-import { Platform, StyleSheet, useColorScheme, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PermissionGate } from '@/components/PermissionGate';
 import Colors from '@/constants/colors';
 
+const IS_IOS = Platform.OS === 'ios';
+const IS_WEB = Platform.OS === 'web';
+
+// ─── iOS-only: check for LiquidGlass ──────────────────────────────────────────
+
+function isLiquidGlassAvailable(): boolean {
+  if (!IS_IOS) return false;
+  try {
+    const mod = require('expo-glass-effect');
+    return typeof mod?.isLiquidGlassAvailable === 'function'
+      ? mod.isLiquidGlassAvailable()
+      : false;
+  } catch {
+    return false;
+  }
+}
+
+// ─── iOS-only: LiquidGlass native tabs ────────────────────────────────────────
+// NativeTabLayout is only ever called when IS_IOS && isLiquidGlassAvailable(),
+// so the require()s inside are safe from Android evaluation.
+
 function NativeTabLayout() {
+  const { Icon, Label, NativeTabs } = require('expo-router/unstable-native-tabs');
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
@@ -33,10 +61,37 @@ function NativeTabLayout() {
   );
 }
 
+// ─── Tab icon helper ───────────────────────────────────────────────────────────
+// On iOS attempts expo-symbols, falls back to Feather.
+// On Android always uses Feather — expo-symbols is never touched.
+
+type FeatherName = React.ComponentProps<typeof Feather>['name'];
+
+function TabIcon({
+  sfName,
+  featherName,
+  color,
+  size = 22,
+}: {
+  sfName: string;
+  featherName: FeatherName;
+  color: string;
+  size?: number;
+}) {
+  if (IS_IOS) {
+    try {
+      const { SymbolView } = require('expo-symbols');
+      return <SymbolView name={sfName} tintColor={color} size={size} />;
+    } catch {
+      // expo-symbols missing — fall through to Feather
+    }
+  }
+  return <Feather name={featherName} size={size} color={color} />;
+}
+
+// ─── Classic cross-platform tabs ──────────────────────────────────────────────
+
 function ClassicTabLayout() {
-  const isDark = true;
-  const isIOS = Platform.OS === 'ios';
-  const isWeb = Platform.OS === 'web';
   const insets = useSafeAreaInsets();
 
   return (
@@ -47,17 +102,17 @@ function ClassicTabLayout() {
         tabBarInactiveTintColor: Colors.textTertiary,
         tabBarStyle: {
           position: 'absolute',
-          backgroundColor: isIOS ? 'transparent' : Colors.tabBar,
+          backgroundColor: IS_IOS ? 'transparent' : Colors.tabBar,
           borderTopWidth: 1,
           borderTopColor: Colors.tabBarBorder,
           elevation: 0,
-          paddingBottom: isWeb ? 0 : insets.bottom,
-          ...(isWeb ? { height: 84 } : {}),
+          paddingBottom: IS_WEB ? 0 : insets.bottom,
+          ...(IS_WEB ? { height: 84 } : {}),
         },
         tabBarBackground: () =>
-          isIOS ? (
+          IS_IOS ? (
             <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-          ) : isWeb ? (
+          ) : IS_WEB ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: Colors.tabBar }]} />
           ) : null,
       }}
@@ -66,58 +121,48 @@ function ClassicTabLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="chart.bar.fill" tintColor={color} size={22} />
-            ) : (
-              <Feather name="bar-chart-2" size={22} color={color} />
-            ),
+          tabBarIcon: ({ color }) => (
+            <TabIcon sfName="chart.bar.fill" featherName="bar-chart-2" color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: 'Apps',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="slider.horizontal.3" tintColor={color} size={22} />
-            ) : (
-              <Feather name="sliders" size={22} color={color} />
-            ),
+          tabBarIcon: ({ color }) => (
+            <TabIcon sfName="slider.horizontal.3" featherName="sliders" color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="focus-zones"
         options={{
           title: 'Focus Zones',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="clock.fill" tintColor={color} size={22} />
-            ) : (
-              <Feather name="clock" size={22} color={color} />
-            ),
+          tabBarIcon: ({ color }) => (
+            <TabIcon sfName="clock.fill" featherName="clock" color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="limits"
         options={{
           title: 'Limits',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="hourglass" tintColor={color} size={22} />
-            ) : (
-              <Feather name="activity" size={22} color={color} />
-            ),
+          tabBarIcon: ({ color }) => (
+            <TabIcon sfName="hourglass" featherName="activity" color={color} />
+          ),
         }}
       />
     </Tabs>
   );
 }
 
+// ─── Root export ───────────────────────────────────────────────────────────────
+
 export default function TabLayout() {
   return (
     <PermissionGate>
-      {isLiquidGlassAvailable() ? <NativeTabLayout /> : <ClassicTabLayout />}
+      {IS_IOS && isLiquidGlassAvailable() ? <NativeTabLayout /> : <ClassicTabLayout />}
     </PermissionGate>
   );
 }

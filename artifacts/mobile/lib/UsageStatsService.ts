@@ -65,10 +65,12 @@ export async function isUsagePermissionGranted(): Promise<boolean> {
   const mod = getNativeModule();
   if (!mod) return false;
   try {
-    // `checkPermission` is the correct method name in @brighthustle/react-native-usage-stats-manager.
-    // Fall back to `checkForPermission` if an older build of the library is linked.
-    const fn = mod.checkPermission ?? mod.checkForPermission;
-    const result = await fn();
+    // Call via the module object to preserve the correct `this` context.
+    // `checkPermission` is the canonical name; `checkForPermission` is accepted
+    // as a fallback for older builds of the library.
+    const result = mod.checkPermission
+      ? await mod.checkPermission()
+      : await mod.checkForPermission();
     return result === true || result === 1 || result === 'granted';
   } catch {
     return false;
