@@ -53,9 +53,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'clock', selected: 'clock.fill' }} />
         <Label>Focus Zones</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="limits">
-        <Icon sf={{ default: 'hourglass', selected: 'hourglass.tophalf.filled' }} />
-        <Label>Limits</Label>
+      <NativeTabs.Trigger name="challenges">
+        <Icon sf={{ default: 'bolt', selected: 'bolt.fill' }} />
+        <Label>Challenges</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -145,11 +145,11 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="limits"
+        name="challenges"
         options={{
-          title: 'Limits',
+          title: 'Challenges',
           tabBarIcon: ({ color }) => (
-            <TabIcon sfName="hourglass" featherName="activity" color={color} />
+            <TabIcon sfName="bolt.fill" featherName="zap" color={color} />
           ),
         }}
       />

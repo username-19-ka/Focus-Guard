@@ -52,6 +52,9 @@ interface DashboardState {
   usagePermissionGranted: boolean;
   isLoadingUsage: boolean;
 
+  /** Epoch ms when the user last completed a challenge. Null = never. */
+  challengeUnlockedAt: number | null;
+
   init: () => Promise<void>;
   incrementShame: (appName?: string) => Promise<void>;
   toggleLeaderboard: () => void;
@@ -60,6 +63,10 @@ interface DashboardState {
   syncToSupabase: (userId: string) => Promise<void>;
   getShareText: () => string;
   refreshUsageStats: () => Promise<void>;
+  /** Call when a challenge finishes — grants a timed unlock window (10 min). */
+  unlockFocus: () => void;
+  /** Returns true if a challenge was completed within the last 10 minutes. */
+  isChallengeUnlocked: () => boolean;
 }
 
 const STORAGE_KEYS = {
@@ -114,6 +121,17 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   topApps: DEFAULT_TOP_APPS,
   usagePermissionGranted: false,
   isLoadingUsage: false,
+  challengeUnlockedAt: null,
+
+  unlockFocus: () => {
+    set({ challengeUnlockedAt: Date.now() });
+  },
+
+  isChallengeUnlocked: () => {
+    const t = get().challengeUnlockedAt;
+    if (!t) return false;
+    return Date.now() - t < 10 * 60 * 1000; // 10-minute window
+  },
 
   init: async () => {
     if (get().isInitialized) return;

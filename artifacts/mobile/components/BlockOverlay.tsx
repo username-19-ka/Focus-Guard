@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { useDashboardStore } from '@/store/dashboardStore';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -28,12 +29,14 @@ type Props = {
 
 export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
   const insets = useSafeAreaInsets();
-  const { incrementShame } = useDashboardStore();
+  const router = useRouter();
+  const { incrementShame, isChallengeUnlocked } = useDashboardStore();
   const [typed, setTyped] = useState('');
   const [shakeAnim] = useState(new Animated.Value(0));
   const [progress, setProgress] = useState(0);
   const [flashRed, setFlashRed] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [challengeUnlocked, setChallengeUnlocked] = useState(false);
   const shieldScale = useRef(new Animated.Value(1)).current;
   const inputRef = useRef<TextInput>(null);
 
@@ -45,6 +48,23 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
       Animated.timing(shieldScale, { toValue: 1.08, duration: 300, useNativeDriver: true }),
       Animated.spring(shieldScale, { toValue: 1, useNativeDriver: true, damping: 12 }),
     ]).start();
+  }, []);
+
+  // Poll for challenge completion every 2 seconds
+  useEffect(() => {
+    if (isChallengeUnlocked()) {
+      setChallengeUnlocked(true);
+      return;
+    }
+    const timer = setInterval(() => {
+      if (isChallengeUnlocked()) {
+        setChallengeUnlocked(true);
+        clearInterval(timer);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setTimeout(() => onUnlocked(), 1500);
+      }
+    }, 2000);
+    return () => clearInterval(timer);
   }, []);
 
   const shake = useCallback(() => {
@@ -179,10 +199,32 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
           <Text style={styles.warningText}>Any typo resets your progress. No copy/paste allowed.</Text>
         </View>
 
+        {/* Alternative: complete a physical challenge */}
+        {!unlocking && !challengeUnlocked && (
+          <Pressable
+            onPress={() => {
+              onClose();
+              router.push('/(tabs)/challenges');
+            }}
+            style={({ pressed }) => [styles.challengeAltBtn, pressed && { opacity: 0.8 }]}
+          >
+            <Feather name="zap" size={14} color={Colors.accent} />
+            <Text style={styles.challengeAltText}>Complete a physical challenge instead</Text>
+            <Feather name="chevron-right" size={14} color={Colors.accent} />
+          </Pressable>
+        )}
+
         {unlocking && (
           <View style={styles.successBanner}>
             <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
             <Text style={styles.successText}>Unlocked! Wall of Shame +1</Text>
+          </View>
+        )}
+
+        {challengeUnlocked && (
+          <View style={styles.challengeUnlockBanner}>
+            <Ionicons name="fitness" size={20} color={Colors.success} />
+            <Text style={styles.challengeUnlockText}>Challenge complete — unlocking now!</Text>
           </View>
         )}
       </View>
@@ -349,6 +391,40 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   successText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    color: Colors.success,
+  },
+  challengeAltBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.accentMuted,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.accent + '44',
+    paddingVertical: 12,
+  },
+  challengeAltText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 13,
+    color: Colors.accent,
+    flex: 1,
+    textAlign: 'center',
+  },
+  challengeUnlockBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    justifyContent: 'center',
+    backgroundColor: Colors.successMuted,
+    borderRadius: 12,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: Colors.success + '44',
+  },
+  challengeUnlockText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 15,
     color: Colors.success,
