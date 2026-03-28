@@ -31,15 +31,28 @@ interface PermissionGateProps {
 export function PermissionGate({ children }: PermissionGateProps) {
   const [checking, setChecking] = useState(true);
   const [granted, setGranted] = useState(false);
+  // Prevent setState calls after the component has unmounted.
+  const mountedRef = React.useRef(true);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const check = useCallback(async () => {
+    if (!mountedRef.current) return;
     setChecking(true);
     try {
       const ok = await isUsagePermissionGranted();
-      if (ok) await markUsageGranted();
+      if (!mountedRef.current) return;
+      if (ok) {
+        try { await markUsageGranted(); } catch { /* non-fatal */ }
+      }
       setGranted(ok);
+    } catch {
+      // isUsagePermissionGranted should never throw, but be safe.
+      if (mountedRef.current) setGranted(false);
     } finally {
-      setChecking(false);
+      if (mountedRef.current) setChecking(false);
     }
   }, []);
 
