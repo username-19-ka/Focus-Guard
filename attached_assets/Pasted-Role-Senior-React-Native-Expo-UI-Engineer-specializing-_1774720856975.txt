@@ -1,0 +1,49 @@
+Role: Senior React Native & Expo UI Engineer (specializing in Wellness/Productivity Apps).
+
+Task: Perform a UI/UX audit and logic overhaul for the "FocusGuard" mobile project based on provided screen feedback.
+
+Core Changes Required:
+
+Dashboard Simplification (Screens 1 & 4):
+
+Locate the Dashboard main screen and components (e.g., DashboardScreen.tsx).
+
+DELETE the "Focus Mode ON/OFF" top toggle card (image 0, top).
+
+DELETE the entire red "Wall of Shame" section (image 0, middle).
+
+DELETE the "Before vs. After" screen-time comparison card (image 3).
+
+DELETE the "Global Leaderboard" opt-in toggle card (image 3).
+
+Goal: The final dashboard should prioritize "Today's Impact" summary stats, the "Weekly Activity" bar chart, and the "App Usage Today" real-time list.
+
+Modal Feature Addition (Screen 3):
+
+Locate the "New Focus Zone" creation modal (e.g., NewFocusZoneModal.tsx).
+
+Add a new section below the "DAYS" selector called "Apps to Block".
+
+Requirements: Implement a horizontal scrollable list or a grid using FlashList (or FlatList) to display a list of installed apps.
+
+Data Source: Pull the app list from UsageStatsService or a mock data array if the native module isn't connected yet.
+
+Interaction: Allow multiple-choice selection of apps within the grid. Selected apps must have a distinct border color or checkmark.
+
+Ensure the selected apps are saved into the FocusZone state.
+
+Focus Zones Logic Fix (Screen 2):
+
+Locate the "Focus Zones" screen (e.g., FocusZonesScreen.tsx).
+
+Audit the row component for each zone. The user reports the DELETE (trash can) icon does not work.
+
+Fix: Connect the onPress event of the delete icon to a confirmation alert (using Alert.alert()) and then to the Zustand store function that removes the item from the zones list. Verify the row animates out upon successful deletion.
+
+Constraints:
+
+Directory: Execute from artifacts/mobile.
+
+Styling: Use existing styled-components, native-base, or Tailwind classes where possible to maintain theme consistency.
+
+Feedback: Present a summary of changed files before making final edits.
