@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
+  FlatList,
   Platform,
   Pressable,
   ScrollView,
@@ -19,6 +21,17 @@ import Colors from '@/constants/colors';
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 const COLORS = [Colors.accent, Colors.blue, Colors.warning, Colors.danger, '#A78BFA', '#FB923C', '#34D399'];
 
+const MOCK_BLOCKABLE_APPS = [
+  { packageName: 'com.instagram.android',      name: 'Instagram',  icon: 'logo-instagram' as const, color: '#E1306C' },
+  { packageName: 'com.zhiliaoapp.musically',   name: 'TikTok',     icon: 'play-circle'    as const, color: '#69C9D0' },
+  { packageName: 'com.twitter.android',        name: 'X',          icon: 'logo-twitter'   as const, color: '#1DA1F2' },
+  { packageName: 'com.google.android.youtube', name: 'YouTube',    icon: 'logo-youtube'   as const, color: '#FF0000' },
+  { packageName: 'com.reddit.frontpage',       name: 'Reddit',     icon: 'logo-reddit'    as const, color: '#FF4500' },
+  { packageName: 'com.facebook.katana',        name: 'Facebook',   icon: 'logo-facebook'  as const, color: '#1877F2' },
+  { packageName: 'com.snapchat.android',       name: 'Snapchat',   icon: 'camera'         as const, color: '#FFFC00' },
+  { packageName: 'com.linkedin.android',       name: 'LinkedIn',   icon: 'logo-linkedin'  as const, color: '#0A66C2' },
+];
+
 type FocusZone = {
   id: string;
   name: string;
@@ -29,12 +42,13 @@ type FocusZone = {
   days: number[];
   color: string;
   enabled: boolean;
+  blockedApps: string[];
 };
 
 const DEFAULT_ZONES: FocusZone[] = [
-  { id: '1', name: 'Work Hours', startHour: 9, startMin: 0, endHour: 17, endMin: 0, days: [0, 1, 2, 3, 4], color: Colors.accent, enabled: true },
-  { id: '2', name: 'Study Time', startHour: 19, startMin: 0, endHour: 21, endMin: 0, days: [0, 1, 2, 3, 4], color: Colors.blue, enabled: false },
-  { id: '3', name: 'No Screens', startHour: 22, startMin: 0, endHour: 23, endMin: 59, days: [0, 1, 2, 3, 4, 5, 6], color: Colors.danger, enabled: true },
+  { id: '1', name: 'Work Hours',  startHour: 9,  startMin: 0, endHour: 17, endMin: 0,  days: [0, 1, 2, 3, 4],          color: Colors.accent,  enabled: true,  blockedApps: [] },
+  { id: '2', name: 'Study Time',  startHour: 19, startMin: 0, endHour: 21, endMin: 0,  days: [0, 1, 2, 3, 4],          color: Colors.blue,    enabled: false, blockedApps: [] },
+  { id: '3', name: 'No Screens',  startHour: 22, startMin: 0, endHour: 23, endMin: 59, days: [0, 1, 2, 3, 4, 5, 6],   color: Colors.danger,  enabled: true,  blockedApps: [] },
 ];
 
 function formatTime(h: number, m: number) {
@@ -79,6 +93,48 @@ function TimeWheel({ label, hour, min, onHourChange, onMinChange }: {
   );
 }
 
+function AppBlockSelector({ selected, onToggle }: {
+  selected: string[];
+  onToggle: (pkg: string) => void;
+}) {
+  return (
+    <FlatList
+      data={MOCK_BLOCKABLE_APPS}
+      keyExtractor={item => item.packageName}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.appSelectorList}
+      renderItem={({ item }) => {
+        const isSelected = selected.includes(item.packageName);
+        return (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onToggle(item.packageName);
+            }}
+            style={[
+              styles.appChip,
+              isSelected && { borderColor: item.color, borderWidth: 2, backgroundColor: item.color + '18' },
+            ]}
+          >
+            <View style={[styles.appChipIcon, { backgroundColor: item.color + '22' }]}>
+              <Ionicons name={item.icon} size={18} color={item.color} />
+            </View>
+            <Text style={[styles.appChipName, isSelected && { color: Colors.text }]} numberOfLines={1}>
+              {item.name}
+            </Text>
+            {isSelected && (
+              <View style={[styles.appChipCheck, { backgroundColor: item.color }]}>
+                <Feather name="check" size={9} color={Colors.background} />
+              </View>
+            )}
+          </Pressable>
+        );
+      }}
+    />
+  );
+}
+
 function ZoneCard({ zone, onToggle, onEdit, onDelete }: {
   zone: FocusZone;
   onToggle: () => void;
@@ -97,7 +153,7 @@ function ZoneCard({ zone, onToggle, onEdit, onDelete }: {
             <Pressable onPress={onEdit} hitSlop={8} style={styles.zoneActionBtn}>
               <Feather name="edit-2" size={15} color={Colors.textTertiary} />
             </Pressable>
-            <Pressable onPress={onDelete} hitSlop={8} style={styles.zoneActionBtn}>
+            <Pressable onPress={onDelete} hitSlop={12} style={styles.zoneActionBtn}>
               <Feather name="trash-2" size={15} color={Colors.danger} />
             </Pressable>
             <Pressable onPress={onToggle} hitSlop={6}>
@@ -111,8 +167,47 @@ function ZoneCard({ zone, onToggle, onEdit, onDelete }: {
           {formatTime(zone.startHour, zone.startMin)} – {formatTime(zone.endHour, zone.endMin)}
         </Text>
         <Text style={styles.zoneDays}>{activeDays}</Text>
+        {zone.blockedApps.length > 0 && (
+          <Text style={styles.zoneBlocked}>
+            {zone.blockedApps.length} app{zone.blockedApps.length !== 1 ? 's' : ''} blocked
+          </Text>
+        )}
       </View>
     </View>
+  );
+}
+
+function AnimatedZoneCard({ zone, onToggle, onEdit, onDelete, isExiting, onExited }: {
+  zone: FocusZone;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  isExiting: boolean;
+  onExited: () => void;
+}) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const maxHeight = useRef(new Animated.Value(120)).current;
+
+  useEffect(() => {
+    if (isExiting) {
+      Animated.parallel([
+        Animated.timing(opacity,     { toValue: 0,   duration: 240, useNativeDriver: false }),
+        Animated.timing(translateX,  { toValue: 40,  duration: 240, useNativeDriver: false }),
+        Animated.timing(maxHeight,   { toValue: 0,   duration: 280, useNativeDriver: false }),
+      ]).start(() => onExited());
+    }
+  }, [isExiting]);
+
+  return (
+    <Animated.View style={{ opacity, transform: [{ translateX }], maxHeight, overflow: 'hidden' }}>
+      <ZoneCard
+        zone={zone}
+        onToggle={onToggle}
+        onEdit={onEdit}
+        onDelete={onDelete}
+      />
+    </Animated.View>
   );
 }
 
@@ -130,6 +225,7 @@ function ZoneModal({ visible, zone, onSave, onClose }: {
   const [endM, setEndM] = useState(zone?.endMin ?? 0);
   const [days, setDays] = useState<number[]>(zone?.days ?? [0, 1, 2, 3, 4]);
   const [color, setColor] = useState(zone?.color ?? Colors.accent);
+  const [blockedApps, setBlockedApps] = useState<string[]>(zone?.blockedApps ?? []);
 
   useEffect(() => {
     if (visible && zone) {
@@ -140,12 +236,26 @@ function ZoneModal({ visible, zone, onSave, onClose }: {
       setEndM(zone.endMin ?? 0);
       setDays(zone.days ?? [0, 1, 2, 3, 4]);
       setColor(zone.color ?? Colors.accent);
+      setBlockedApps(zone.blockedApps ?? []);
+    } else if (visible && !zone) {
+      setName('');
+      setStartH(9);
+      setStartM(0);
+      setEndH(17);
+      setEndM(0);
+      setDays([0, 1, 2, 3, 4]);
+      setColor(Colors.accent);
+      setBlockedApps([]);
     }
   }, [visible, zone]);
 
   const toggleDay = (d: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
+  };
+
+  const toggleApp = (pkg: string) => {
+    setBlockedApps(prev => prev.includes(pkg) ? prev.filter(x => x !== pkg) : [...prev, pkg]);
   };
 
   const save = () => {
@@ -157,6 +267,7 @@ function ZoneModal({ visible, zone, onSave, onClose }: {
       endHour: endH, endMin: endM,
       days, color,
       enabled: zone?.enabled ?? true,
+      blockedApps,
     });
   };
 
@@ -209,6 +320,16 @@ function ZoneModal({ visible, zone, onSave, onClose }: {
             </View>
 
             <View style={styles.fieldWrap}>
+              <Text style={styles.fieldLabel}>Apps to Block</Text>
+              <Text style={styles.fieldSub}>
+                {blockedApps.length === 0
+                  ? 'Select apps to restrict during this zone'
+                  : `${blockedApps.length} app${blockedApps.length !== 1 ? 's' : ''} selected`}
+              </Text>
+              <AppBlockSelector selected={blockedApps} onToggle={toggleApp} />
+            </View>
+
+            <View style={styles.fieldWrap}>
               <Text style={styles.fieldLabel}>Color</Text>
               <View style={styles.colorRow}>
                 {COLORS.map(c => (
@@ -239,6 +360,7 @@ export default function FocusZonesScreen() {
   const [zones, setZones] = useState<FocusZone[]>(DEFAULT_ZONES);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingZone, setEditingZone] = useState<FocusZone | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   useEffect(() => {
@@ -247,7 +369,7 @@ export default function FocusZonesScreen() {
     });
   }, []);
 
-  const save = (updated: FocusZone[]) => {
+  const persist = (updated: FocusZone[]) => {
     setZones(updated);
     AsyncStorage.setItem('focusZones', JSON.stringify(updated));
   };
@@ -255,26 +377,37 @@ export default function FocusZonesScreen() {
   const handleSave = (z: FocusZone) => {
     const exists = zones.find(x => x.id === z.id);
     const updated = exists ? zones.map(x => x.id === z.id ? z : x) : [...zones, z];
-    save(updated);
+    persist(updated);
     setModalVisible(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleDelete = (id: string) => {
-    Alert.alert('Delete Zone', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: () => {
-          save(zones.filter(z => z.id !== id));
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        }
-      },
-    ]);
+    Alert.alert(
+      'Delete Zone',
+      'This focus schedule will be permanently removed.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            setDeletingId(id);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleExited = (id: string) => {
+    persist(zones.filter(z => z.id !== id));
+    setDeletingId(null);
   };
 
   const handleToggle = (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    save(zones.map(z => z.id === id ? { ...z, enabled: !z.enabled } : z));
+    persist(zones.map(z => z.id === id ? { ...z, enabled: !z.enabled } : z));
   };
 
   return (
@@ -299,14 +432,19 @@ export default function FocusZonesScreen() {
           <Text style={styles.emptyDesc}>Create a schedule to automatically block distractions during key times.</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 110, gap: 10 }} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 110, gap: 10 }}
+          showsVerticalScrollIndicator={false}
+        >
           {zones.map(z => (
-            <ZoneCard
+            <AnimatedZoneCard
               key={z.id}
               zone={z}
               onToggle={() => handleToggle(z.id)}
               onEdit={() => { setEditingZone(z); setModalVisible(true); }}
               onDelete={() => handleDelete(z.id)}
+              isExiting={deletingId === z.id}
+              onExited={() => handleExited(z.id)}
             />
           ))}
         </ScrollView>
@@ -360,6 +498,12 @@ const styles = StyleSheet.create({
   zoneActionBtn: { padding: 4 },
   zoneTime: { fontFamily: 'Inter_500Medium', fontSize: 14, color: Colors.textSecondary },
   zoneDays: { fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textTertiary, letterSpacing: 0.5 },
+  zoneBlocked: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    color: Colors.accent,
+    marginTop: 2,
+  },
   toggle: {
     width: 44, height: 26, borderRadius: 13,
     backgroundColor: Colors.border, padding: 3, justifyContent: 'center',
@@ -373,13 +517,26 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 12,
-    maxHeight: '90%',
+    maxHeight: '92%',
   },
   modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: 16 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   modalTitle: { fontFamily: 'Inter_700Bold', fontSize: 20, color: Colors.text },
   fieldWrap: { marginBottom: 20 },
-  fieldLabel: { fontFamily: 'Inter_600SemiBold', fontSize: 13, color: Colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
+  fieldLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: Colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  fieldSub: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginBottom: 10,
+  },
   nameInput: {
     backgroundColor: Colors.surfaceElevated, borderRadius: 12,
     borderWidth: 1, borderColor: Colors.border,
@@ -400,6 +557,45 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   dayChipText: { fontFamily: 'Inter_600SemiBold', fontSize: 12, color: Colors.textSecondary },
+  appSelectorList: {
+    gap: 10,
+    paddingVertical: 4,
+  },
+  appChip: {
+    alignItems: 'center',
+    width: 70,
+    gap: 6,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surfaceElevated,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    position: 'relative',
+  },
+  appChipIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appChipName: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 10,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  appChipCheck: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   colorRow: { flexDirection: 'row', gap: 10 },
   colorChip: { width: 32, height: 32, borderRadius: 16 },
   colorChipSelected: { borderWidth: 3, borderColor: Colors.text },
