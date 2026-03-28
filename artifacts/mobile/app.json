@@ -22,6 +22,7 @@
       "package": "com.focusguard.app",
       "jsEngine": "hermes",
       "permissions": [
+        "android.permission.CAMERA",
         "android.permission.PACKAGE_USAGE_STATS",
         "android.permission.QUERY_ALL_PACKAGES",
         "android.permission.SYSTEM_ALERT_WINDOW",
@@ -40,6 +41,7 @@
           "origin": "https://replit.com/"
         }
       ],
+      "expo-camera",
       "expo-font",
       "expo-web-browser",
       [

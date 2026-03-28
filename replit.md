@@ -72,8 +72,13 @@ A full-featured screen-time blocker app built with Expo + Supabase.
 **Phase 4 — 4-Tab UI**
 - `(tabs)/index.tsx` — Dashboard: stats, focus mode toggle, app usage bars, Wall of Shame
 - `(tabs)/settings.tsx` — Managed Apps: expansion tile per app with lock duration, unlock goals, time limit pickers
-- `(tabs)/focus-zones.tsx` — Focus Zones CRUD: create/edit/delete time range schedules with day picker and color picker
-- `(tabs)/limits.tsx` — App Limits: daily budget sliders + test blocker overlay trigger
+- `(tabs)/focus-zones.tsx` — Focus Zones CRUD: create/edit/delete time range schedules with day picker and color picker; inline delete confirmation (no Alert.alert)
+- `(tabs)/challenges.tsx` — Physical Challenges tab: push-up/squat/custom exercise sessions with 3-2-1 countdown, SVG progress ring, PoseTracker (web: TF.js MoveNet auto-detection; native: tap-to-count), and completion screen that grants a 10-minute unlock window via `unlockFocus()` in the dashboard store
+
+**Phase 5 — Challenge Unlock Flow**
+- `store/dashboardStore.ts` — Zustand store with `challengeUnlockedAt`, `unlockFocus()`, and `isChallengeUnlocked()` (10-minute window check)
+- `components/BlockOverlay.tsx` — Polls every 2 s for challenge unlock; shows "Challenge complete — unlocking now!" banner and auto-dismisses; also shows "Complete a physical challenge instead" button that navigates to the Challenges tab
+- `components/PoseTracker.tsx` — Web: TF.js WebGL + getUserMedia + MoveNet pose detection; Native: expo-camera CameraView + manual tap-to-count fallback
 
 ### Navigation Flow
 ```
@@ -84,13 +89,14 @@ index.tsx (router)
         ├── index         (Dashboard)
         ├── settings      (Managed Apps)
         ├── focus-zones   (Focus Zones)
-        └── limits        (App Limits)
+        └── challenges    (Physical Challenges)
 ```
 
 ### Key Files
 - `lib/supabase.ts` — Supabase client (AsyncStorage session)
 - `context/AuthContext.tsx` — Auth state provider + hooks
 - `constants/colors.ts` — Full dark-mode color palette
+- `store/dashboardStore.ts` — Zustand persisted store (usage stats, focus mode, challenge unlock state)
 
 ---
 

@@ -219,8 +219,8 @@ export default function DashboardScreen() {
             <View style={styles.loadingDot} />
           )}
         </View>
-        <Pressable onPress={() => router.push('/(tabs)/limits')} hitSlop={8}>
-          <Text style={styles.seeAll}>Manage</Text>
+        <Pressable onPress={() => router.push('/(tabs)/challenges')} hitSlop={8}>
+          <Text style={styles.seeAll}>Challenges</Text>
         </Pressable>
       </View>
 
