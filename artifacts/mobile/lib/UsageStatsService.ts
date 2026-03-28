@@ -42,7 +42,12 @@ function getNativeModule(): Record<string, (...args: any[]) => Promise<any>> | n
   if (Platform.OS !== 'android') return null;
   try {
     const mod = require('@brighthustle/react-native-usage-stats-manager');
-    if (!mod || typeof mod.checkForPermission !== 'function') return null;
+    // The library exports `checkPermission`, not `checkForPermission`.
+    // Accepting either name guards against future library renames.
+    const hasCheck =
+      typeof mod?.checkPermission === 'function' ||
+      typeof mod?.checkForPermission === 'function';
+    if (!mod || !hasCheck) return null;
     return mod as Record<string, (...args: any[]) => Promise<any>>;
   } catch {
     return null;
@@ -60,7 +65,10 @@ export async function isUsagePermissionGranted(): Promise<boolean> {
   const mod = getNativeModule();
   if (!mod) return false;
   try {
-    const result = await mod.checkForPermission();
+    // `checkPermission` is the correct method name in @brighthustle/react-native-usage-stats-manager.
+    // Fall back to `checkForPermission` if an older build of the library is linked.
+    const fn = mod.checkPermission ?? mod.checkForPermission;
+    const result = await fn();
     return result === true || result === 1 || result === 'granted';
   } catch {
     return false;

@@ -20,13 +20,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import {
   checkOverlayPermission,
-  checkUsagePermission,
   markOverlayGranted,
   markUsageGranted,
   openOverlaySettings,
   openUsageAccessSettings,
   subscribeToAppForeground,
 } from '@/lib/PermissionService';
+import { isUsagePermissionGranted } from '@/lib/UsageStatsService';
 import Colors from '@/constants/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -187,41 +187,50 @@ function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
   const isAndroid = Platform.OS === 'android';
 
   const recheck = useCallback(async () => {
-    const [usage, overlay] = await Promise.all([
-      checkUsagePermission(),
-      checkOverlayPermission(),
-    ]);
-
-    if (usagePending && !usage) {
-      await markUsageGranted();
+    // ── Usage Access ──────────────────────────────────────────────────────────
+    // Use the real AppOpsManager native check (not AsyncStorage) so a user who
+    // returns from Settings WITHOUT granting does not get a free pass.
+    const realUsage = await isUsagePermissionGranted();
+    if (realUsage && !usageGranted) {
+      await markUsageGranted(); // persist so PermissionService reads it too
       setUsageGranted(true);
       setUsagePending(false);
-      onPermissionsChange(true, overlay || overlayGranted);
-    } else if (usage) {
-      setUsageGranted(true);
+      onPermissionsChange(true, overlayGranted);
+    } else if (!realUsage && usagePending) {
+      // User returned but did NOT grant — reset pending so they can try again.
       setUsagePending(false);
     }
 
-    if (overlayPending && !overlay) {
+    // ── Overlay (SYSTEM_ALERT_WINDOW) ─────────────────────────────────────────
+    // No JS-accessible native check exists for canDrawOverlays() in Expo.
+    // We trust the AsyncStorage flag set by markOverlayGranted(); if the user
+    // explicitly came back from the overlay settings page, assume grant.
+    const overlay = await checkOverlayPermission();
+    if (overlay && !overlayGranted) {
+      setOverlayGranted(true);
+      setOverlayPending(false);
+      onPermissionsChange(realUsage || usageGranted, true);
+    } else if (overlayPending && !overlay) {
+      // User was sent to overlay settings and has returned — treat as granted
+      // (best-effort; no native canDrawOverlays() API available in Expo JS).
       await markOverlayGranted();
       setOverlayGranted(true);
       setOverlayPending(false);
-      onPermissionsChange(usage || usageGranted, true);
-    } else if (overlay) {
-      setOverlayGranted(true);
-      setOverlayPending(false);
+      onPermissionsChange(realUsage || usageGranted, true);
     }
   }, [usagePending, overlayPending, usageGranted, overlayGranted, onPermissionsChange]);
 
   useEffect(() => {
     (async () => {
-      const [usage, overlay] = await Promise.all([
-        checkUsagePermission(),
+      // Use the real native check for usage; AsyncStorage fallback for overlay.
+      const [realUsage, overlay] = await Promise.all([
+        isUsagePermissionGranted(),
         checkOverlayPermission(),
       ]);
-      setUsageGranted(usage);
+      if (realUsage) await markUsageGranted();
+      setUsageGranted(realUsage);
       setOverlayGranted(overlay);
-      onPermissionsChange(usage, overlay);
+      onPermissionsChange(realUsage, overlay);
     })();
   }, []);
 

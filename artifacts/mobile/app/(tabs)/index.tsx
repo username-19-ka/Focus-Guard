@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Dimensions,
   Platform,
   Pressable,
@@ -344,6 +345,17 @@ export default function DashboardScreen() {
       if (user?.id) syncFromSupabase(user.id);
     });
   }, [user?.id]);
+
+  // Re-poll usage stats whenever the app returns to the foreground.
+  // This covers the case where the user went to Android Settings to grant
+  // Usage Access and comes back — the dashboard should reflect real data
+  // immediately without a manual pull-to-refresh.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshUsageStats();
+    });
+    return () => sub.remove();
+  }, [refreshUsageStats]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

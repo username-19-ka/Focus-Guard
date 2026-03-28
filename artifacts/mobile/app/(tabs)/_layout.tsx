@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons';
 import React from 'react';
 import { Platform, StyleSheet, useColorScheme, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PermissionGate } from '@/components/PermissionGate';
 import Colors from '@/constants/colors';
 
 function NativeTabLayout() {
@@ -114,8 +115,9 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
+  return (
+    <PermissionGate>
+      {isLiquidGlassAvailable() ? <NativeTabLayout /> : <ClassicTabLayout />}
+    </PermissionGate>
+  );
 }
