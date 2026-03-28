@@ -166,7 +166,7 @@ function ZoneCard({ zone, onToggle, onEdit, onDelete }: {
           {formatTime(zone.startHour, zone.startMin)} – {formatTime(zone.endHour, zone.endMin)}
         </Text>
         <Text style={styles.zoneDays}>{activeDays}</Text>
-        {zone.blockedApps.length > 0 && (
+        {(zone.blockedApps?.length ?? 0) > 0 && (
           <Text style={styles.zoneBlocked}>
             {zone.blockedApps.length} app{zone.blockedApps.length !== 1 ? 's' : ''} blocked
           </Text>
@@ -364,7 +364,12 @@ export default function FocusZonesScreen() {
 
   useEffect(() => {
     AsyncStorage.getItem('focusZones').then(v => {
-      if (v) { try { setZones(JSON.parse(v)); } catch {} }
+      if (v) {
+        try {
+          const parsed: FocusZone[] = JSON.parse(v);
+          setZones(parsed.map(z => ({ ...z, blockedApps: z.blockedApps ?? [] })));
+        } catch {}
+      }
     });
   }, []);
 
