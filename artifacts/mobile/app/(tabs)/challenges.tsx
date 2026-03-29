@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, {
   useCallback,
@@ -18,7 +19,6 @@ import {
 } from 'react-native';
 import Svg, {
   Circle,
-  Ellipse,
   Line,
   Path,
   Rect,
@@ -28,12 +28,17 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/colors';
 import PoseTracker from '@/components/PoseTracker';
 import { useBankedMinutes } from '@/store/bankedMinutesStore';
+import {
+  useActiveChallenge,
+  buildChallenge,
+  type ChallengeType,
+  type DifficultyKey,
+  type DurType,
+} from '@/store/activeChallengeStore';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ExerciseId = 'pushup' | 'step' | 'reboot' | 'squat' | 'buildOwn';
-type DifficultyPreset = 'easy' | 'medium' | 'hard' | 'athlete' | 'custom';
-type DurationType = 'days' | 'weeks' | 'months' | 'infinite';
+type ExerciseId = 'pushup' | 'squat' | 'buildOwn';
 type Phase = 'list' | 'guideWelcome' | 'guidePosition' | 'guideSpending' | 'guideBanked' | 'countdown' | 'session' | 'complete';
 type ActiveModal = null | 'detail' | 'buildYourOwn' | 'duration';
 
@@ -42,9 +47,6 @@ type ChallengeConfig = {
   label: string;
   sub: string;
   color: string;
-  gradient: [string, string];
-  FeatherIcon?: React.ComponentProps<typeof Feather>['name'];
-  IonicIcon?: React.ComponentProps<typeof Ionicons>['name'];
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -52,14 +54,13 @@ type ChallengeConfig = {
 const BLUE = '#007AFF';
 
 const CHALLENGES: ChallengeConfig[] = [
-  { id: 'pushup',   label: 'Pushup to Scroll', sub: '204k active', color: '#3DBE6E', gradient: ['#3DBE6E', '#0E0F11'], FeatherIcon: 'trending-up' },
-  { id: 'step',     label: 'Step to Scroll',   sub: '32.6k active', color: '#F0A500', gradient: ['#F0A500', '#0E0F11'], IonicIcon: 'walk' },
-  { id: 'reboot',   label: 'Project Reboot',   sub: '4.3k active', color: '#00BCD4', gradient: ['#00BCD4', '#0E0F11'], FeatherIcon: 'power' },
-  { id: 'squat',    label: 'Squat to Scroll',  sub: '45.4k active', color: '#AB47BC', gradient: ['#AB47BC', '#0E0F11'], FeatherIcon: 'arrow-down' },
-  { id: 'buildOwn', label: 'Build Your Own',   sub: '35.5k active', color: '#FF6D00', gradient: ['#FF6D00', '#0E0F11'], IonicIcon: 'barbell' },
+  { id: 'pushup',   label: 'Pushup to Scroll', sub: '204k active', color: '#3DBE6E' },
+  { id: 'squat',    label: 'Squat to Scroll',  sub: '45.4k active', color: '#AB47BC' },
+  { id: 'buildOwn', label: 'Build Your Own',   sub: '35.5k active', color: '#FF6D00' },
 ];
 
-const DIFFICULTIES: Array<{ key: DifficultyPreset; label: string; repsPerUnit: number; minsPerUnit: number }> = [
+type DifficultyDef = { key: DifficultyKey; label: string; repsPerUnit: number; minsPerUnit: number };
+const DIFFICULTIES: DifficultyDef[] = [
   { key: 'easy',    label: 'Easy',    repsPerUnit: 1,  minsPerUnit: 3 },
   { key: 'medium',  label: 'Medium',  repsPerUnit: 1,  minsPerUnit: 1 },
   { key: 'hard',    label: 'Hard',    repsPerUnit: 3,  minsPerUnit: 1 },
@@ -67,18 +68,23 @@ const DIFFICULTIES: Array<{ key: DifficultyPreset; label: string; repsPerUnit: n
   { key: 'custom',  label: 'Custom',  repsPerUnit: 1,  minsPerUnit: 1 },
 ];
 
-const DUR_TYPES: DurationType[] = ['days', 'weeks', 'months', 'infinite'];
-const DUR_LABELS: Record<DurationType, string> = { days: 'Days', weeks: 'Weeks', months: 'Months', infinite: 'Infinite' };
+const DUR_TYPES: DurType[] = ['days', 'weeks', 'months', 'infinite'];
+const DUR_LABELS: Record<DurType, string> = { days: 'Days', weeks: 'Weeks', months: 'Months', infinite: 'Infinite' };
 
-const BUILD_OWN_EXERCISES: Array<{ id: ExerciseId; label: string; sub: string; color: string; IonicIcon?: React.ComponentProps<typeof Ionicons>['name']; FeatherIcon?: React.ComponentProps<typeof Feather>['name'] }> = [
-  { id: 'pushup', label: 'Pushup to Scroll', sub: 'Every pushup earns a minute', color: '#3DBE6E', FeatherIcon: 'trending-up' },
-  { id: 'squat',  label: 'Squat to Scroll',  sub: 'Every squat earns a minute',  color: '#AB47BC', FeatherIcon: 'arrow-down' },
-  { id: 'step',   label: 'Step to Scroll',   sub: 'Every 100 steps earns a minute', color: '#F0A500', IonicIcon: 'walk' },
+const BUILD_OWN_EXERCISES = [
+  { id: 'pushup' as ExerciseId, label: 'Pushup to Scroll', sub: 'Every pushup earns a minute', color: '#3DBE6E' },
+  { id: 'squat'  as ExerciseId, label: 'Squat to Scroll',  sub: 'Every squat earns a minute',  color: '#AB47BC' },
 ];
 
 const GUIDE_STEPS = 6;
 
-function getEndDate(durType: DurationType, durValue: number): string {
+// Guide images
+const GUIDE_IMG_1 = require('../../assets/images/pushup-guide-1.png');
+const GUIDE_IMG_2 = require('../../assets/images/pushup-guide-2.png');
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getEndDate(durType: DurType, durValue: number): string {
   if (durType === 'infinite') return 'No end date';
   const now = new Date();
   const days = durType === 'days' ? durValue : durType === 'weeks' ? durValue * 7 : durValue * 30;
@@ -86,12 +92,80 @@ function getEndDate(durType: DurationType, durValue: number): string {
   return `Challenge ends on ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`;
 }
 
-function difficultyDescription(c: ChallengeConfig, diff: DifficultyPreset, customReps: number, customMins: number): string {
-  const eName = c.id === 'squat' ? 'squat' : c.id === 'step' ? 'step' : 'pushup';
+function diffDescription(c: ChallengeConfig, diff: DifficultyKey, customReps: number, customMins: number): string {
+  const eName = c.id === 'squat' ? 'squat' : 'pushup';
   if (diff === 'custom') return `Every ${customReps} ${eName}${customReps !== 1 ? 's' : ''} earns ${customMins} minute${customMins !== 1 ? 's' : ''}`;
   const d = DIFFICULTIES.find(d => d.key === diff)!;
   if (d.repsPerUnit === 1) return `Every ${eName} earns ${d.minsPerUnit > 1 ? d.minsPerUnit + ' minutes' : 'a minute'}`;
   return `Every ${d.repsPerUnit} ${eName}s earns a minute`;
+}
+
+function getDiffValues(diff: DifficultyKey, customReps: number, customMins: number): { repsPerUnit: number; minsPerUnit: number } {
+  if (diff === 'custom') return { repsPerUnit: customReps, minsPerUnit: customMins };
+  return DIFFICULTIES.find(d => d.key === diff)!;
+}
+
+// ─── Inline exercise icons ────────────────────────────────────────────────────
+
+function PushupIcon({ color, size = 24 }: { color: string; size?: number }) {
+  const s = size;
+  return (
+    <Svg width={s} height={s} viewBox="0 0 32 32">
+      {/* Head */}
+      <Circle cx={5} cy={11} r={3} stroke={color} strokeWidth={2} fill="none" />
+      {/* Body diagonal */}
+      <Line x1={8} y1={13} x2={28} y2={22} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      {/* Front arm (elbow bent, close to ground) */}
+      <Line x1={12} y1={15} x2={12} y2={21} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      {/* Back arm */}
+      <Line x1={22} y1={19} x2={22} y2={25} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      {/* Floor */}
+      <Line x1={4} y1={25} x2={28} y2={25} stroke={color} strokeWidth={1.5} strokeLinecap="round" opacity={0.5} />
+    </Svg>
+  );
+}
+
+function SquatIcon({ color, size = 24 }: { color: string; size?: number }) {
+  const s = size;
+  return (
+    <Svg width={s} height={s} viewBox="0 0 32 32">
+      {/* Head */}
+      <Circle cx={16} cy={5} r={3} stroke={color} strokeWidth={2} fill="none" />
+      {/* Torso (leaning forward) */}
+      <Line x1={16} y1={8} x2={14} y2={17} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      {/* Arms forward */}
+      <Line x1={15} y1={12} x2={5} y2={14} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={15} y1={12} x2={8} y2={11} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      {/* Thighs */}
+      <Line x1={14} y1={17} x2={8} y2={22} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      <Line x1={14} y1={17} x2={22} y2={21} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      {/* Lower legs */}
+      <Line x1={8} y1={22} x2={9} y2={28} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={22} y1={21} x2={23} y2={27} stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function BuildOwnIcon({ color, size = 24 }: { color: string; size?: number }) {
+  return <Ionicons name="barbell" size={size} color={color} />;
+}
+
+function ChallengeIcon({ id, color, size = 24 }: { id: ExerciseId; color: string; size?: number }) {
+  if (id === 'pushup') return <PushupIcon color={color} size={size} />;
+  if (id === 'squat') return <SquatIcon color={color} size={size} />;
+  return <BuildOwnIcon color={color} size={size} />;
+}
+
+// ─── Progress dashes ──────────────────────────────────────────────────────────
+
+function ProgressDashes({ step }: { step: number }) {
+  return (
+    <View style={styles.progressDashes}>
+      {Array.from({ length: GUIDE_STEPS }).map((_, i) => (
+        <View key={i} style={[styles.progressDash, i <= step && styles.progressDashActive]} />
+      ))}
+    </View>
+  );
 }
 
 // ─── Root screen ──────────────────────────────────────────────────────────────
@@ -99,22 +173,26 @@ function difficultyDescription(c: ChallengeConfig, diff: DifficultyPreset, custo
 export default function ChallengesScreen() {
   const insets = useSafeAreaInsets();
   const addMinutes = useBankedMinutes(s => s.addMinutes);
+  const setActiveChallenge = useActiveChallenge(s => s.setChallenge);
+  const recordSession = useActiveChallenge(s => s.recordSession);
+  const loadChallenge = useActiveChallenge(s => s.loadFromStorage);
 
   const [phase, setPhase] = useState<Phase>('list');
   const [modal, setModal] = useState<ActiveModal>(null);
   const [selected, setSelected] = useState<ChallengeConfig | null>(null);
-  const [difficulty, setDifficulty] = useState<DifficultyPreset>('medium');
+  const [difficulty, setDifficulty] = useState<DifficultyKey>('medium');
   const [customReps, setCustomReps] = useState(5);
   const [customMins, setCustomMins] = useState(1);
-  const [durType, setDurType] = useState<DurationType>('days');
+  const [durType, setDurType] = useState<DurType>('days');
   const [durValue, setDurValue] = useState(5);
-  const [byoEnabled, setByoEnabled] = useState<Record<ExerciseId, boolean>>({ pushup: true, squat: true, step: false, reboot: false, buildOwn: false });
+  const [byoEnabled, setByoEnabled] = useState<Record<ExerciseId, boolean>>({ pushup: true, squat: true, buildOwn: false });
   const [guideStep, setGuideStep] = useState(0);
   const [reps, setReps] = useState(0);
   const [phaseText, setPhaseText] = useState('');
 
-  const repsPerUnit = difficulty === 'custom' ? customReps : DIFFICULTIES.find(d => d.key === difficulty)!.repsPerUnit;
-  const minsPerUnit = difficulty === 'custom' ? customMins : DIFFICULTIES.find(d => d.key === difficulty)!.minsPerUnit;
+  useEffect(() => { loadChallenge(); }, []);
+
+  const { repsPerUnit, minsPerUnit } = getDiffValues(difficulty, customReps, customMins);
   const target = selected?.id === 'squat' ? 15 : 10;
   const earnedMinutes = Math.floor(reps / repsPerUnit) * minsPerUnit;
 
@@ -159,6 +237,7 @@ export default function ChallengesScreen() {
 
   const handleComplete = async () => {
     if (earnedMinutes > 0) await addMinutes(earnedMinutes);
+    await recordSession(reps, earnedMinutes);
   };
 
   const handleReset = () => {
@@ -169,12 +248,28 @@ export default function ChallengesScreen() {
   };
 
   const closeModal = () => setModal(null);
-
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+
+  // Save challenge on guide start
+  const handleGuideComplete = () => {
+    if (!selected) return;
+    const { repsPerUnit: rpu, minsPerUnit: mpu } = getDiffValues(difficulty, customReps, customMins);
+    const c = buildChallenge({
+      challengeType: selected.id as ChallengeType,
+      challengeLabel: selected.label,
+      challengeColor: selected.color,
+      difficulty,
+      repsPerUnit: rpu,
+      minsPerUnit: mpu,
+      durationType: durType,
+      durationValue: durValue,
+    });
+    setActiveChallenge(c);
+    setPhase('countdown');
+  };
 
   return (
     <View style={[styles.root, { paddingTop: topPad }]}>
-      {/* Main phases */}
       {phase === 'list' && <ListScreen challenges={CHALLENGES} onStart={handleStart} />}
       {phase === 'guideWelcome' && selected && (
         <GuideWelcome
@@ -204,16 +299,12 @@ export default function ChallengesScreen() {
       {phase === 'guideBanked' && (
         <GuideBanked
           guideStep={guideStep}
-          onNext={() => { setPhase('countdown'); }}
+          onNext={handleGuideComplete}
           onClose={handleReset}
         />
       )}
       {phase === 'countdown' && selected && (
-        <CountdownView
-          challenge={selected}
-          onComplete={() => setPhase('session')}
-          onCancel={handleReset}
-        />
+        <CountdownView challenge={selected} onComplete={() => setPhase('session')} onCancel={handleReset} />
       )}
       {phase === 'session' && selected && (
         <SessionView
@@ -238,7 +329,6 @@ export default function ChallengesScreen() {
         />
       )}
 
-      {/* Bottom sheet modals */}
       <DetailSheet
         visible={modal === 'detail'}
         challenge={selected}
@@ -268,6 +358,61 @@ export default function ChallengesScreen() {
         onStart={handleSaveDuration}
         onClose={closeModal}
       />
+    </View>
+  );
+}
+
+// ─── Active challenge card ────────────────────────────────────────────────────
+
+function MyChallengeCard() {
+  const challenge = useActiveChallenge(s => s.challenge);
+  const clearChallenge = useActiveChallenge(s => s.clearChallenge);
+
+  if (!challenge) return null;
+
+  const daysLeft = challenge.endsAt
+    ? Math.max(0, Math.ceil((new Date(challenge.endsAt).getTime() - Date.now()) / 86400000))
+    : null;
+
+  return (
+    <View style={[styles.myChallengCard, { borderColor: challenge.challengeColor + '55' }]}>
+      <LinearGradient
+        colors={[challenge.challengeColor + '22', 'transparent']}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.myChallengRow}>
+        <View style={[styles.myChallengIcon, { backgroundColor: challenge.challengeColor + '22' }]}>
+          <ChallengeIcon id={challenge.challengeType as ExerciseId} color={challenge.challengeColor} size={20} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.myChallengLabel}>My Challenge</Text>
+          <Text style={[styles.myChallengName, { color: challenge.challengeColor }]}>{challenge.challengeLabel}</Text>
+        </View>
+        <Pressable onPress={clearChallenge} hitSlop={8}>
+          <Feather name="x" size={16} color={Colors.textTertiary} />
+        </Pressable>
+      </View>
+
+      <View style={styles.myChallengStats}>
+        <View style={styles.myChallengStat}>
+          <Text style={[styles.myChallengStatVal, { color: challenge.challengeColor }]}>{challenge.totalReps}</Text>
+          <Text style={styles.myChallengStatLabel}>Total Reps</Text>
+        </View>
+        <View style={styles.myChallengDivider} />
+        <View style={styles.myChallengStat}>
+          <Text style={[styles.myChallengStatVal, { color: Colors.success }]}>{challenge.totalMinutesBanked}</Text>
+          <Text style={styles.myChallengStatLabel}>Min Banked</Text>
+        </View>
+        {daysLeft !== null && (
+          <>
+            <View style={styles.myChallengDivider} />
+            <View style={styles.myChallengStat}>
+              <Text style={[styles.myChallengStatVal, { color: Colors.text }]}>{daysLeft}</Text>
+              <Text style={styles.myChallengStatLabel}>Days Left</Text>
+            </View>
+          </>
+        )}
+      </View>
     </View>
   );
 }
@@ -302,6 +447,8 @@ function ListScreen({ challenges, onStart }: { challenges: ChallengeConfig[]; on
 
       <Text style={styles.listSubtitle}>Start or join a new challenge</Text>
 
+      <MyChallengeCard />
+
       {hasAccess() && (
         <View style={styles.sessionActiveBanner}>
           <Ionicons name="timer" size={16} color={Colors.success} />
@@ -314,7 +461,7 @@ function ListScreen({ challenges, onStart }: { challenges: ChallengeConfig[]; on
       {!hasAccess() && bankedMinutes > 0 && (
         <View style={styles.bankedBanner}>
           <Feather name="zap" size={14} color={Colors.accent} />
-          <Text style={styles.bankedBannerText}>{bankedMinutes} min banked — start a challenge to earn more</Text>
+          <Text style={styles.bankedBannerText}>{bankedMinutes} min banked — open a blocked app to spend them</Text>
         </View>
       )}
 
@@ -325,19 +472,15 @@ function ListScreen({ challenges, onStart }: { challenges: ChallengeConfig[]; on
           style={({ pressed }) => [styles.challengeRow, pressed && { opacity: 0.8 }]}
         >
           <View style={[styles.challengeRowIcon, { backgroundColor: c.color + '22' }]}>
-            {c.FeatherIcon ? (
-              <Feather name={c.FeatherIcon} size={22} color={c.color} />
-            ) : (
-              <Ionicons name={c.IonicIcon as any} size={22} color={c.color} />
-            )}
+            <ChallengeIcon id={c.id} color={c.color} size={22} />
           </View>
           <View style={styles.challengeRowBody}>
             <Text style={styles.challengeRowLabel}>{c.label}</Text>
             <Text style={styles.challengeRowSub}>{c.sub}</Text>
           </View>
-          <Pressable onPress={() => onStart(c)} style={styles.startBtn}>
+          <View style={styles.startBtn}>
             <Text style={styles.startBtnText}>Start</Text>
-          </Pressable>
+          </View>
         </Pressable>
       ))}
 
@@ -346,103 +489,103 @@ function ListScreen({ challenges, onStart }: { challenges: ChallengeConfig[]; on
   );
 }
 
-// ─── Detail sheet (difficulty + custom ratio) ─────────────────────────────────
+// ─── Sheet helpers ────────────────────────────────────────────────────────────
 
-function DetailSheet({
-  visible, challenge, difficulty, customReps, customMins,
-  onDifficultyChange, onCustomRepsChange, onCustomMinsChange, onSave, onClose,
-}: {
-  visible: boolean;
-  challenge: ChallengeConfig | null;
-  difficulty: DifficultyPreset;
-  customReps: number;
-  customMins: number;
-  onDifficultyChange: (d: DifficultyPreset) => void;
-  onCustomRepsChange: (n: number) => void;
-  onCustomMinsChange: (n: number) => void;
-  onSave: () => void;
-  onClose: () => void;
+function SheetHeader({ challenge, onClose }: { challenge: ChallengeConfig; onClose: () => void }) {
+  return (
+    <LinearGradient
+      colors={[challenge.color + 'CC', challenge.color + '22', 'transparent']}
+      style={styles.sheetGradient}
+    >
+      <View style={styles.sheetTopRow}>
+        <View style={[styles.sheetIconBox, { backgroundColor: challenge.color + '33' }]}>
+          <ChallengeIcon id={challenge.id} color={challenge.color} size={22} />
+        </View>
+        <Pressable onPress={onClose} style={styles.sheetCloseBtn} hitSlop={8}>
+          <Feather name="x" size={18} color={Colors.textSecondary} />
+        </Pressable>
+      </View>
+      <Text style={styles.sheetTitle}>{challenge.label}</Text>
+    </LinearGradient>
+  );
+}
+
+function DifficultyStrip({ difficulty, onChange }: { difficulty: DifficultyKey; onChange: (d: DifficultyKey) => void }) {
+  return (
+    <View style={styles.diffPillStrip}>
+      {DIFFICULTIES.map(d => (
+        <Pressable
+          key={d.key}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChange(d.key); }}
+          style={[styles.diffPill, difficulty === d.key && styles.diffPillActive]}
+        >
+          <Text style={[styles.diffPillText, difficulty === d.key && styles.diffPillTextActive]}>{d.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function Counter({ value, onDecrement, onIncrement }: { value: number; onDecrement: () => void; onIncrement: () => void }) {
+  return (
+    <View style={styles.counterCard}>
+      <Pressable onPress={onDecrement} hitSlop={12}>
+        <Text style={styles.counterBtn}>−</Text>
+      </Pressable>
+      <Text style={styles.counterValue}>{value}</Text>
+      <Pressable onPress={onIncrement} hitSlop={12}>
+        <Text style={[styles.counterBtn, { color: Colors.text }]}>+</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ─── Detail sheet ─────────────────────────────────────────────────────────────
+
+function DetailSheet({ visible, challenge, difficulty, customReps, customMins, onDifficultyChange, onCustomRepsChange, onCustomMinsChange, onSave, onClose }: {
+  visible: boolean; challenge: ChallengeConfig | null;
+  difficulty: DifficultyKey; customReps: number; customMins: number;
+  onDifficultyChange: (d: DifficultyKey) => void;
+  onCustomRepsChange: (n: number) => void; onCustomMinsChange: (n: number) => void;
+  onSave: () => void; onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
   if (!challenge) return null;
-
   const isCustom = difficulty === 'custom';
-  const descText = difficultyDescription(challenge, difficulty, customReps, customMins);
-  const eName = challenge.id === 'squat' ? 'squats' : 'pushups';
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose} />
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
-        <LinearGradient
-          colors={[challenge.color + 'CC', challenge.color + '22', 'transparent']}
-          style={styles.sheetGradient}
-        >
-          <View style={styles.sheetTopRow}>
-            <View style={[styles.sheetIconBox, { backgroundColor: challenge.color + '33' }]}>
-              {challenge.FeatherIcon ? (
-                <Feather name={challenge.FeatherIcon} size={22} color={challenge.color} />
-              ) : (
-                <Ionicons name={challenge.IonicIcon as any} size={22} color={challenge.color} />
-              )}
-            </View>
-            <Pressable onPress={onClose} style={styles.sheetCloseBtn} hitSlop={8}>
-              <Feather name="x" size={18} color={Colors.textSecondary} />
-            </Pressable>
-          </View>
-          <Text style={styles.sheetTitle}>{challenge.label}</Text>
-        </LinearGradient>
-
+        <SheetHeader challenge={challenge} onClose={onClose} />
         <View style={styles.sheetBody}>
           <Text style={styles.sheetSectionLabel}>Difficulty</Text>
-
-          <View style={styles.diffPillStrip}>
-            {DIFFICULTIES.map(d => (
-              <Pressable
-                key={d.key}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onDifficultyChange(d.key); }}
-                style={[styles.diffPill, difficulty === d.key && styles.diffPillActive]}
-              >
-                <Text style={[styles.diffPillText, difficulty === d.key && styles.diffPillTextActive]}>
-                  {d.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+          <DifficultyStrip difficulty={difficulty} onChange={onDifficultyChange} />
 
           {isCustom && (
             <View style={styles.customCountersRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.customCounterLabel}>{challenge.id === 'squat' ? 'Squats' : 'Pushups'}</Text>
-                <View style={styles.counterCard}>
-                  <Pressable onPress={() => { if (customReps > 1) { onCustomRepsChange(customReps - 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } }} hitSlop={8}>
-                    <Text style={styles.counterBtn}>−</Text>
-                  </Pressable>
-                  <Text style={styles.counterValue}>{customReps}</Text>
-                  <Pressable onPress={() => { onCustomRepsChange(customReps + 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }} hitSlop={8}>
-                    <Text style={[styles.counterBtn, { color: Colors.text }]}>+</Text>
-                  </Pressable>
-                </View>
+                <Counter
+                  value={customReps}
+                  onDecrement={() => { if (customReps > 1) { onCustomRepsChange(customReps - 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}}
+                  onIncrement={() => { onCustomRepsChange(customReps + 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.customCounterLabel}>Minutes Earned</Text>
-                <View style={styles.counterCard}>
-                  <Pressable onPress={() => { if (customMins > 1) { onCustomMinsChange(customMins - 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } }} hitSlop={8}>
-                    <Text style={styles.counterBtn}>−</Text>
-                  </Pressable>
-                  <Text style={styles.counterValue}>{customMins}</Text>
-                  <Pressable onPress={() => { onCustomMinsChange(customMins + 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }} hitSlop={8}>
-                    <Text style={[styles.counterBtn, { color: Colors.text }]}>+</Text>
-                  </Pressable>
-                </View>
+                <Counter
+                  value={customMins}
+                  onDecrement={() => { if (customMins > 1) { onCustomMinsChange(customMins - 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}}
+                  onIncrement={() => { onCustomMinsChange(customMins + 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                />
               </View>
             </View>
           )}
 
           <View style={styles.infoCard}>
-            <Text style={styles.infoCardText}>{descText}</Text>
+            <Text style={styles.infoCardText}>{diffDescription(challenge, difficulty, customReps, customMins)}</Text>
           </View>
-
           <Pressable onPress={onSave} style={styles.blueBtn}>
             <Text style={styles.blueBtnText}>Save</Text>
           </Pressable>
@@ -455,11 +598,8 @@ function DetailSheet({
 // ─── Build Your Own sheet ─────────────────────────────────────────────────────
 
 function BuildYourOwnSheet({ visible, enabled, onToggle, onSave, onClose }: {
-  visible: boolean;
-  enabled: Record<ExerciseId, boolean>;
-  onToggle: (id: ExerciseId) => void;
-  onSave: () => void;
-  onClose: () => void;
+  visible: boolean; enabled: Record<ExerciseId, boolean>;
+  onToggle: (id: ExerciseId) => void; onSave: () => void; onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const byo = CHALLENGES.find(c => c.id === 'buildOwn')!;
@@ -468,21 +608,7 @@ function BuildYourOwnSheet({ visible, enabled, onToggle, onSave, onClose }: {
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose} />
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
-        <LinearGradient
-          colors={[byo.color + 'CC', byo.color + '22', 'transparent']}
-          style={styles.sheetGradient}
-        >
-          <View style={styles.sheetTopRow}>
-            <View style={[styles.sheetIconBox, { backgroundColor: byo.color + '33' }]}>
-              <Ionicons name="barbell" size={22} color={byo.color} />
-            </View>
-            <Pressable onPress={onClose} style={styles.sheetCloseBtn} hitSlop={8}>
-              <Feather name="x" size={18} color={Colors.textSecondary} />
-            </Pressable>
-          </View>
-          <Text style={styles.sheetTitle}>Exercise to Scroll</Text>
-        </LinearGradient>
-
+        <SheetHeader challenge={byo} onClose={onClose} />
         <View style={styles.sheetBody}>
           {BUILD_OWN_EXERCISES.map(ex => (
             <Pressable
@@ -491,23 +617,17 @@ function BuildYourOwnSheet({ visible, enabled, onToggle, onSave, onClose }: {
               style={styles.byoRow}
             >
               <View style={[styles.byoRowIcon, { backgroundColor: ex.color + '22' }]}>
-                {ex.FeatherIcon ? (
-                  <Feather name={ex.FeatherIcon} size={18} color={ex.color} />
-                ) : (
-                  <Ionicons name={ex.IonicIcon as any} size={18} color={ex.color} />
-                )}
+                <ChallengeIcon id={ex.id} color={ex.color} size={18} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.byoRowLabel}>{ex.label}</Text>
                 <Text style={styles.byoRowSub}>{ex.sub}</Text>
               </View>
-              <Feather name="play" size={12} color={Colors.textTertiary} style={{ marginRight: 10 }} />
               <View style={[styles.toggle, enabled[ex.id] && styles.toggleOn]}>
                 <View style={[styles.toggleThumb, enabled[ex.id] && styles.toggleThumbOn]} />
               </View>
             </Pressable>
           ))}
-
           <Pressable onPress={onSave} style={[styles.blueBtn, { marginTop: 8 }]}>
             <Text style={styles.blueBtnText}>Save</Text>
           </Pressable>
@@ -520,46 +640,22 @@ function BuildYourOwnSheet({ visible, enabled, onToggle, onSave, onClose }: {
 // ─── Duration sheet ───────────────────────────────────────────────────────────
 
 function DurationSheet({ visible, challenge, durType, durValue, onDurTypeChange, onDurValueChange, onStart, onClose }: {
-  visible: boolean;
-  challenge: ChallengeConfig | null;
-  durType: DurationType;
-  durValue: number;
-  onDurTypeChange: (t: DurationType) => void;
-  onDurValueChange: (n: number) => void;
-  onStart: () => void;
-  onClose: () => void;
+  visible: boolean; challenge: ChallengeConfig | null;
+  durType: DurType; durValue: number;
+  onDurTypeChange: (t: DurType) => void; onDurValueChange: (n: number) => void;
+  onStart: () => void; onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
   if (!challenge) return null;
   const isInfinite = durType === 'infinite';
-  const endDate = getEndDate(durType, durValue);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose} />
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
-        <LinearGradient
-          colors={[challenge.color + 'CC', challenge.color + '22', 'transparent']}
-          style={styles.sheetGradient}
-        >
-          <View style={styles.sheetTopRow}>
-            <View style={[styles.sheetIconBox, { backgroundColor: challenge.color + '33' }]}>
-              {challenge.FeatherIcon ? (
-                <Feather name={challenge.FeatherIcon} size={22} color={challenge.color} />
-              ) : (
-                <Ionicons name={challenge.IonicIcon as any} size={22} color={challenge.color} />
-              )}
-            </View>
-            <Pressable onPress={onClose} style={styles.sheetCloseBtn} hitSlop={8}>
-              <Feather name="x" size={18} color={Colors.textSecondary} />
-            </Pressable>
-          </View>
-          <Text style={styles.sheetTitle}>{challenge.label}</Text>
-        </LinearGradient>
-
+        <SheetHeader challenge={challenge} onClose={onClose} />
         <View style={styles.sheetBody}>
           <Text style={styles.sheetSectionLabel}>Duration</Text>
-
           <View style={styles.diffPillStrip}>
             {DUR_TYPES.map(dt => (
               <Pressable
@@ -567,33 +663,24 @@ function DurationSheet({ visible, challenge, durType, durValue, onDurTypeChange,
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onDurTypeChange(dt); }}
                 style={[styles.diffPill, durType === dt && styles.diffPillActive]}
               >
-                <Text style={[styles.diffPillText, durType === dt && styles.diffPillTextActive]}>
-                  {DUR_LABELS[dt]}
-                </Text>
+                <Text style={[styles.diffPillText, durType === dt && styles.diffPillTextActive]}>{DUR_LABELS[dt]}</Text>
               </Pressable>
             ))}
           </View>
 
           {!isInfinite && (
             <View style={styles.durPickerCard}>
-              <Pressable
-                onPress={() => { if (durValue > 1) { onDurValueChange(durValue - 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } }}
-                hitSlop={16}
-              >
+              <Pressable onPress={() => { if (durValue > 1) { onDurValueChange(durValue - 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}} hitSlop={16}>
                 <Text style={styles.durPickerBtn}>−</Text>
               </Pressable>
               <Text style={styles.durPickerValue}>{durValue}</Text>
-              <Pressable
-                onPress={() => { onDurValueChange(durValue + 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                hitSlop={16}
-              >
+              <Pressable onPress={() => { onDurValueChange(durValue + 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }} hitSlop={16}>
                 <Text style={[styles.durPickerBtn, { color: Colors.text }]}>+</Text>
               </Pressable>
             </View>
           )}
 
-          <Text style={styles.endDateText}>{endDate}</Text>
-
+          <Text style={styles.endDateText}>{getEndDate(durType, durValue)}</Text>
           <Pressable onPress={onStart} style={styles.blueBtn}>
             <Text style={styles.blueBtnText}>Start New Challenge</Text>
           </Pressable>
@@ -603,37 +690,15 @@ function DurationSheet({ visible, challenge, durType, durValue, onDurTypeChange,
   );
 }
 
-// ─── Guide: progress bar ──────────────────────────────────────────────────────
-
-function ProgressDashes({ step }: { step: number }) {
-  return (
-    <View style={styles.progressDashes}>
-      {Array.from({ length: GUIDE_STEPS }).map((_, i) => (
-        <View
-          key={i}
-          style={[styles.progressDash, i <= step && styles.progressDashActive]}
-        />
-      ))}
-    </View>
-  );
-}
-
 // ─── Guide: Welcome ───────────────────────────────────────────────────────────
 
 function GuideWelcome({ challenge, durType, durValue, guideStep, onNext, onClose }: {
-  challenge: ChallengeConfig;
-  durType: DurationType;
-  durValue: number;
-  guideStep: number;
-  onNext: () => void;
-  onClose: () => void;
+  challenge: ChallengeConfig; durType: DurType; durValue: number; guideStep: number;
+  onNext: () => void; onClose: () => void;
 }) {
   const isInfinite = durType === 'infinite';
-  const durLabel = isInfinite
-    ? 'indefinitely'
-    : `the next ${durValue} ${DUR_LABELS[durType].toLowerCase()}`;
-
-  const eName = challenge.id === 'squat' ? 'squats' : challenge.id === 'step' ? 'steps' : 'pushups';
+  const durLabel = isInfinite ? 'indefinitely' : `the next ${durValue} ${DUR_LABELS[durType].toLowerCase()}`;
+  const eName = challenge.id === 'squat' ? 'squats' : 'pushups';
 
   return (
     <View style={styles.guideScreen}>
@@ -642,26 +707,18 @@ function GuideWelcome({ challenge, durType, durValue, guideStep, onNext, onClose
         <Feather name="x" size={18} color={Colors.textSecondary} />
       </Pressable>
 
-      <View style={styles.guideCenterContent}>
+      {/* Tapping the icon area advances */}
+      <Pressable style={styles.guideCenterContent} onPress={onNext}>
         <View style={[styles.guideLargeIcon, { backgroundColor: challenge.color + '22' }]}>
-          {challenge.FeatherIcon ? (
-            <Feather name={challenge.FeatherIcon} size={44} color={challenge.color} />
-          ) : (
-            <Ionicons name={challenge.IonicIcon as any} size={44} color={challenge.color} />
-          )}
+          <ChallengeIcon id={challenge.id} color={challenge.color} size={44} />
         </View>
-
         <Text style={styles.guideLargeTitle}>
           Welcome to the{'\n'}{challenge.label}{'\n'}Challenge
         </Text>
-
         <Text style={styles.guideBody}>
           For {durLabel}, you'll earn minutes on your restricted apps by doing {eName}
         </Text>
-      </View>
-
-      <Pressable onPress={onNext} style={styles.guideNextBtn}>
-        <Feather name="arrow-right" size={20} color={Colors.background} />
+        <Text style={styles.guideTapHint}>Tap to continue</Text>
       </Pressable>
     </View>
   );
@@ -670,12 +727,19 @@ function GuideWelcome({ challenge, durType, durValue, guideStep, onNext, onClose
 // ─── Guide: Position ─────────────────────────────────────────────────────────
 
 function GuidePosition({ challenge, guideStep, onNext, onClose }: {
-  challenge: ChallengeConfig;
-  guideStep: number;
-  onNext: () => void;
-  onClose: () => void;
+  challenge: ChallengeConfig; guideStep: number; onNext: () => void; onClose: () => void;
 }) {
+  const [imgIndex, setImgIndex] = useState(0);
   const isSquat = challenge.id === 'squat';
+
+  const handleImageTap = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (imgIndex === 0) {
+      setImgIndex(1);
+    } else {
+      onNext();
+    }
+  };
 
   return (
     <View style={styles.guideScreen}>
@@ -692,67 +756,48 @@ function GuidePosition({ challenge, guideStep, onNext, onClose }: {
             : 'Record pushups with your front facing camera'}
         </Text>
 
-        <View style={styles.stickFigureWrap}>
-          {isSquat ? <SquatFigureSvg /> : <PushupFigureSvg />}
-        </View>
+        {/* Tappable image — first tap goes to image 2, second tap advances */}
+        <Pressable onPress={handleImageTap} style={styles.guideImgWrap}>
+          {imgIndex === 0 ? (
+            isSquat ? (
+              <SquatGuideSvg />
+            ) : (
+              <Image
+                source={GUIDE_IMG_1}
+                style={styles.guideImg}
+                contentFit="contain"
+              />
+            )
+          ) : (
+            <Image
+              source={GUIDE_IMG_2}
+              style={styles.guideImg}
+              contentFit="contain"
+            />
+          )}
+          <Text style={styles.guideTapHint}>{imgIndex === 0 ? 'Tap image to see next view' : 'Tap to continue'}</Text>
+        </Pressable>
 
         <Text style={styles.guideLikeThis}>like this</Text>
       </View>
-
-      <Pressable onPress={onNext} style={styles.blueBtn}>
-        <Text style={styles.blueBtnText}>Try it</Text>
-      </Pressable>
     </View>
   );
 }
 
-// ─── Stick figures ────────────────────────────────────────────────────────────
-
-function PushupFigureSvg() {
+function SquatGuideSvg() {
   return (
-    <Svg width={260} height={130} viewBox="0 0 260 130">
-      {/* Floor line */}
-      <Line x1="10" y1="105" x2="220" y2="105" stroke="#4488FF" strokeWidth="2" />
-      {/* Phone (vertical rectangle) */}
-      <Rect x="215" y="65" width="20" height="40" rx="3" stroke="#4488FF" strokeWidth="2" fill="none" />
-      <Line x1="215" y1="95" x2="235" y2="95" stroke="#4488FF" strokeWidth="1" />
-
-      {/* Body - plank position */}
-      {/* Head */}
-      <Circle cx="52" cy="60" r="10" stroke="#4488FF" strokeWidth="2" fill="none" />
-      {/* Torso */}
-      <Line x1="62" y1="64" x2="170" y2="100" stroke="#4488FF" strokeWidth="2.5" />
-      {/* Arms */}
-      <Line x1="90" y1="73" x2="90" y2="105" stroke="#4488FF" strokeWidth="2.5" />
-      <Line x1="145" y1="90" x2="145" y2="105" stroke="#4488FF" strokeWidth="2.5" />
-      {/* Legs */}
-      <Line x1="170" y1="100" x2="185" y2="100" stroke="#4488FF" strokeWidth="2.5" />
-      <Line x1="185" y1="100" x2="185" y2="105" stroke="#4488FF" strokeWidth="2.5" />
-    </Svg>
-  );
-}
-
-function SquatFigureSvg() {
-  return (
-    <Svg width={260} height={160} viewBox="0 0 260 160">
-      {/* Person in squat */}
-      {/* Head */}
-      <Circle cx="130" cy="35" r="14" stroke="#4488FF" strokeWidth="2.5" fill="none" />
-      {/* Torso */}
-      <Line x1="130" y1="49" x2="130" y2="90" stroke="#4488FF" strokeWidth="2.5" />
-      {/* Arms */}
-      <Line x1="130" y1="60" x2="100" y2="80" stroke="#4488FF" strokeWidth="2" />
-      <Line x1="130" y1="60" x2="160" y2="80" stroke="#4488FF" strokeWidth="2" />
-      {/* Thighs (bent) */}
-      <Line x1="130" y1="90" x2="100" y2="120" stroke="#4488FF" strokeWidth="2.5" />
-      <Line x1="130" y1="90" x2="160" y2="120" stroke="#4488FF" strokeWidth="2.5" />
-      {/* Lower legs */}
-      <Line x1="100" y1="120" x2="100" y2="150" stroke="#4488FF" strokeWidth="2.5" />
-      <Line x1="160" y1="120" x2="160" y2="150" stroke="#4488FF" strokeWidth="2.5" />
-      {/* Floor */}
-      <Line x1="70" y1="150" x2="190" y2="150" stroke="#4488FF" strokeWidth="2" />
-      {/* Phone propped on side */}
-      <Rect x="215" y="90" width="18" height="32" rx="3" stroke="#4488FF" strokeWidth="2" fill="none" />
+    <Svg width={220} height={180} viewBox="0 0 220 180">
+      <Circle cx={110} cy={28} r={16} stroke="#4488FF" strokeWidth={2.5} fill="none" />
+      <Line x1={110} y1={44} x2={110} y2={90} stroke="#4488FF" strokeWidth={2.5} />
+      <Line x1={110} y1={60} x2={82} y2={82} stroke="#4488FF" strokeWidth={2} />
+      <Line x1={110} y1={60} x2={138} y2={82} stroke="#4488FF" strokeWidth={2} />
+      <Line x1={110} y1={90} x2={84} y2={120} stroke="#4488FF" strokeWidth={2.5} />
+      <Line x1={110} y1={90} x2={136} y2={120} stroke="#4488FF" strokeWidth={2.5} />
+      <Line x1={84} y1={120} x2={84} y2={155} stroke="#4488FF" strokeWidth={2.5} />
+      <Line x1={136} y1={120} x2={136} y2={155} stroke="#4488FF" strokeWidth={2.5} />
+      <Line x1={55} y1={155} x2={165} y2={155} stroke="#4488FF" strokeWidth={2} />
+      {/* Phone upright */}
+      <Rect x={178} y={90} width={18} height={32} rx={3} stroke="#4488FF" strokeWidth={2} fill="none" />
     </Svg>
   );
 }
@@ -766,34 +811,18 @@ function GuideSpending({ guideStep, onNext, onClose }: { guideStep: number; onNe
       <Pressable onPress={onClose} style={styles.guideCloseBtn} hitSlop={8}>
         <Feather name="x" size={18} color={Colors.textSecondary} />
       </Pressable>
-
-      <View style={styles.guideCenterContent}>
+      <Pressable style={styles.guideCenterContent} onPress={onNext}>
         <Text style={styles.guideLargeTitle}>Spending Minutes</Text>
-        <Text style={styles.guideBody}>
-          To spend your minutes, go to the app you want to unlock
-        </Text>
-
+        <Text style={styles.guideBody}>To spend your minutes, go to the app you want to unlock</Text>
         <View style={styles.appGridWrap}>
           {Array.from({ length: 9 }).map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.appGridCell,
-                i === 4 && styles.appGridCellHighlight,
-              ]}
-            >
+            <View key={i} style={[styles.appGridCell, i === 4 && styles.appGridCellHighlight]}>
               {i === 4 && <Ionicons name="lock-closed" size={20} color={BLUE} />}
             </View>
           ))}
         </View>
-
-        <Text style={styles.guideBodySmall}>
-          From there you can spend minutes or earn more
-        </Text>
-      </View>
-
-      <Pressable onPress={onNext} style={styles.guideNextBtn}>
-        <Feather name="arrow-right" size={20} color={Colors.background} />
+        <Text style={styles.guideBodySmall}>From there you can spend minutes or earn more</Text>
+        <Text style={styles.guideTapHint}>Tap to continue</Text>
       </Pressable>
     </View>
   );
@@ -808,50 +837,31 @@ function GuideBanked({ guideStep, onNext, onClose }: { guideStep: number; onNext
       <Pressable onPress={onClose} style={styles.guideCloseBtn} hitSlop={8}>
         <Feather name="x" size={18} color={Colors.textSecondary} />
       </Pressable>
-
-      <View style={styles.guideCenterContent}>
+      <Pressable style={styles.guideCenterContent} onPress={onNext}>
         <Text style={styles.guideLargeTitle}>Banked Minutes</Text>
         <Text style={[styles.guideBody, { textAlign: 'center' }]}>
           Minutes you don't spend are{' '}
           <Text style={{ fontFamily: 'Inter_700Bold', color: Colors.text }}>banked</Text>
           {' '}for later
         </Text>
-
-        <View style={styles.barChartWrap}>
-          <Svg width="100%" height={160} viewBox="0 0 300 160">
-            {/* Y-axis labels */}
-            {['60m', '45m', '30m', '15m', '0m'].map((label, i) => (
-              <Path key={label} d={`M 48 ${20 + i * 32} H 280`} stroke="#2A2B33" strokeWidth="1" />
-            ))}
-            {/* Blue fill bar */}
-            <Rect x="48" y="52" width="232" height="108" rx="8" fill={BLUE} />
-            {/* Y-axis text */}
-            {['60m', '45m', '30m', '15m', '0m'].map((label, i) => (
-              <Path key={label} d="" />
-            ))}
-          </Svg>
-          <View style={styles.barChartLabels}>
-            {['60m', '45m', '30m', '15m', '0m'].map((label, i) => (
-              <Text key={label} style={styles.barChartLabel}>{label}</Text>
-            ))}
-          </View>
+        <View style={styles.barChartContainer}>
+          {[60, 45, 30, 15, 0].map((label, i) => (
+            <View key={label} style={styles.barChartRow}>
+              <Text style={styles.barChartLabel}>{label}m</Text>
+              <View style={[styles.barChartFill, { height: 1, backgroundColor: Colors.border, flex: 1 }]} />
+            </View>
+          ))}
+          <View style={[StyleSheet.absoluteFill, { top: 0, left: 36, right: 0, bottom: 16, borderRadius: 10, backgroundColor: BLUE, opacity: 0.85 }]} />
         </View>
-      </View>
-
-      <Pressable onPress={onNext} style={styles.blueBtn}>
-        <Text style={styles.blueBtnText}>Got it</Text>
+        <Text style={styles.guideTapHint}>Tap to start</Text>
       </Pressable>
     </View>
   );
 }
 
-// ─── Countdown view ───────────────────────────────────────────────────────────
+// ─── Countdown ────────────────────────────────────────────────────────────────
 
-function CountdownView({ challenge, onComplete, onCancel }: {
-  challenge: ChallengeConfig;
-  onComplete: () => void;
-  onCancel: () => void;
-}) {
+function CountdownView({ challenge, onComplete, onCancel }: { challenge: ChallengeConfig; onComplete: () => void; onCancel: () => void }) {
   const [count, setCount] = useState(3);
   const [showGo, setShowGo] = useState(false);
   const scaleAnim = useRef(new Animated.Value(0)).current;
@@ -870,9 +880,8 @@ function CountdownView({ challenge, onComplete, onCancel }: {
             Animated.timing(scaleAnim, { toValue: 0.4, duration: 250, useNativeDriver: true }),
             Animated.timing(opacityAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
           ]).start(() => {
-            if (n > 1) {
-              pulse(n - 1);
-            } else {
+            if (n > 1) { pulse(n - 1); }
+            else {
               setShowGo(true);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, damping: 6 }).start();
@@ -906,21 +915,15 @@ function CountdownView({ challenge, onComplete, onCancel }: {
   );
 }
 
-// ─── Session view ─────────────────────────────────────────────────────────────
+// ─── Session ──────────────────────────────────────────────────────────────────
 
 const RING_R = 52;
 const RING_C = 2 * Math.PI * RING_R;
 
 function SessionView({ challenge, reps, target, repsPerUnit, minsPerUnit, phaseText, onRep, onPhaseChange, onGiveUp }: {
-  challenge: ChallengeConfig;
-  reps: number;
-  target: number;
-  repsPerUnit: number;
-  minsPerUnit: number;
-  phaseText: string;
-  onRep: () => void;
-  onPhaseChange: (s: string) => void;
-  onGiveUp: () => void;
+  challenge: ChallengeConfig; reps: number; target: number;
+  repsPerUnit: number; minsPerUnit: number; phaseText: string;
+  onRep: () => void; onPhaseChange: (s: string) => void; onGiveUp: () => void;
 }) {
   const progress = Math.min(reps / target, 1);
   const strokeOffset = RING_C * (1 - progress);
@@ -935,7 +938,6 @@ function SessionView({ challenge, reps, target, repsPerUnit, minsPerUnit, phaseT
         </Pressable>
         <Text style={[styles.sessionLabel, { color: challenge.color }]}>{challenge.label}</Text>
       </View>
-
       <View style={styles.repRingWrap}>
         <Svg width={130} height={130} viewBox="0 0 130 130">
           <Circle cx={65} cy={65} r={RING_R} stroke={Colors.border} strokeWidth={8} fill="none" />
@@ -948,34 +950,24 @@ function SessionView({ challenge, reps, target, repsPerUnit, minsPerUnit, phaseT
           <Text style={styles.repTarget}>/ {target}</Text>
         </View>
       </View>
-
       {earned > 0 && (
         <View style={styles.earnedChip}>
           <Feather name="zap" size={13} color={challenge.color} />
           <Text style={[styles.earnedChipText, { color: challenge.color }]}>{earned} min earned so far</Text>
         </View>
       )}
-
       <View style={styles.trackerWrap}>
-        <PoseTracker
-          exercise={challenge.id === 'squat' ? 'squat' : 'pushup'}
-          active
-          onRep={onRep}
-          onPhaseChange={onPhaseChange}
-        />
+        <PoseTracker exercise={challenge.id === 'squat' ? 'squat' : 'pushup'} active onRep={onRep} onPhaseChange={onPhaseChange} />
       </View>
     </View>
   );
 }
 
-// ─── Complete view ────────────────────────────────────────────────────────────
+// ─── Complete ─────────────────────────────────────────────────────────────────
 
 function CompleteView({ challenge, reps, earnedMinutes, onMount, onDone }: {
-  challenge: ChallengeConfig;
-  reps: number;
-  earnedMinutes: number;
-  onMount: () => Promise<void>;
-  onDone: () => void;
+  challenge: ChallengeConfig; reps: number; earnedMinutes: number;
+  onMount: () => Promise<void>; onDone: () => void;
 }) {
   const scaleAnim = useRef(new Animated.Value(0.6)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -991,15 +983,10 @@ function CompleteView({ challenge, reps, earnedMinutes, onMount, onDone }: {
   return (
     <Animated.View style={[styles.completeContainer, { opacity: opacityAnim }]}>
       <Animated.View style={[styles.completeBadge, { transform: [{ scale: scaleAnim }], borderColor: challenge.color + '66' }]}>
-        {challenge.FeatherIcon ? (
-          <Feather name={challenge.FeatherIcon} size={56} color={challenge.color} />
-        ) : (
-          <Ionicons name={challenge.IonicIcon as any} size={56} color={challenge.color} />
-        )}
+        <ChallengeIcon id={challenge.id} color={challenge.color} size={52} />
       </Animated.View>
       <Text style={styles.completeTitle}>Challenge Complete!</Text>
       <Text style={[styles.completeChallengeName, { color: challenge.color }]}>{challenge.label}</Text>
-
       <View style={styles.statsRow}>
         <View style={styles.stat}>
           <Text style={[styles.statValue, { color: challenge.color }]}>{reps}</Text>
@@ -1011,16 +998,14 @@ function CompleteView({ challenge, reps, earnedMinutes, onMount, onDone }: {
           <Text style={styles.statLabel}>Min Earned</Text>
         </View>
       </View>
-
       {earnedMinutes > 0 && (
         <View style={styles.unlockBanner}>
           <Ionicons name="lock-open" size={18} color={Colors.success} />
           <Text style={styles.unlockBannerText}>
-            {earnedMinutes} min added to your bank. Open any blocked app to use them.
+            {earnedMinutes} min added to your bank. Open any blocked app to spend them.
           </Text>
         </View>
       )}
-
       <Pressable onPress={onDone} style={styles.blueBtn}>
         <Text style={styles.blueBtnText}>Done</Text>
       </Pressable>
@@ -1052,23 +1037,20 @@ const styles = StyleSheet.create({
   sessionActiveBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: Colors.successMuted, borderRadius: 12,
-    borderWidth: 1, borderColor: Colors.success + '44',
-    padding: 12, marginBottom: 12,
+    borderWidth: 1, borderColor: Colors.success + '44', padding: 12, marginBottom: 12,
   },
   sessionActiveBannerText: { fontFamily: 'Inter_600SemiBold', fontSize: 13, color: Colors.success },
   bankedBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: Colors.accentMuted, borderRadius: 12,
-    borderWidth: 1, borderColor: Colors.accent + '33',
-    padding: 12, marginBottom: 12,
+    borderWidth: 1, borderColor: Colors.accent + '33', padding: 12, marginBottom: 12,
   },
   bankedBannerText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.accent },
 
   challengeRow: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.border,
-    padding: 14, marginBottom: 10,
+    borderWidth: 1, borderColor: Colors.border, padding: 14, marginBottom: 10,
   },
   challengeRowIcon: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   challengeRowBody: { flex: 1 },
@@ -1077,71 +1059,53 @@ const styles = StyleSheet.create({
   startBtn: { backgroundColor: BLUE, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 9 },
   startBtnText: { fontFamily: 'Inter_700Bold', fontSize: 14, color: '#fff' },
 
-  // Sheet modal
-  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
-  sheet: {
-    backgroundColor: '#0D0F13',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    overflow: 'hidden',
+  // My challenge card
+  myChallengCard: {
+    borderRadius: 16, borderWidth: 1, overflow: 'hidden',
+    backgroundColor: Colors.surface, padding: 14, marginBottom: 14, gap: 12,
   },
+  myChallengRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  myChallengIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  myChallengLabel: { fontFamily: 'Inter_500Medium', fontSize: 11, color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.8 },
+  myChallengName: { fontFamily: 'Inter_700Bold', fontSize: 16 },
+  myChallengStats: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surfaceElevated, borderRadius: 12, padding: 12 },
+  myChallengStat: { flex: 1, alignItems: 'center', gap: 2 },
+  myChallengStatVal: { fontFamily: 'Inter_700Bold', fontSize: 22 },
+  myChallengStatLabel: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textSecondary },
+  myChallengDivider: { width: 1, height: 36, backgroundColor: Colors.border },
+
+  // Sheet
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  sheet: { backgroundColor: '#0D0F13', borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
   sheetGradient: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16 },
   sheetTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 },
   sheetIconBox: { width: 52, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  sheetCloseBtn: {
-    width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center', justifyContent: 'center',
-  },
+  sheetCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
   sheetTitle: { fontFamily: 'Inter_700Bold', fontSize: 26, color: Colors.text },
   sheetBody: { paddingHorizontal: 20, paddingTop: 8, gap: 14 },
   sheetSectionLabel: { fontFamily: 'Inter_700Bold', fontSize: 15, color: Colors.text },
 
-  // Difficulty / duration pill strip
-  diffPillStrip: {
-    flexDirection: 'row',
-    backgroundColor: Colors.surface,
-    borderRadius: 12, borderWidth: 1, borderColor: Colors.border,
-    padding: 3, gap: 2,
-  },
+  diffPillStrip: { flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, padding: 3, gap: 2 },
   diffPill: { flex: 1, borderRadius: 9, paddingVertical: 9, alignItems: 'center' },
   diffPillActive: { backgroundColor: BLUE },
-  diffPillText: { fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.textSecondary },
+  diffPillText: { fontFamily: 'Inter_500Medium', fontSize: 12, color: Colors.textSecondary },
   diffPillTextActive: { color: '#fff', fontFamily: 'Inter_700Bold' },
 
-  // Custom counters
   customCountersRow: { flexDirection: 'row', gap: 12 },
   customCounterLabel: { fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.textSecondary, marginBottom: 6 },
-  counterCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: Colors.surfaceElevated, borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 12,
-  },
+  counterCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surfaceElevated, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   counterBtn: { fontFamily: 'Inter_400Regular', fontSize: 26, color: Colors.textSecondary, lineHeight: 32 },
-  counterValue: { fontFamily: 'Inter_700Bold', fontSize: 32, color: Colors.text },
+  counterValue: { fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.text },
 
-  // Info card
-  infoCard: {
-    backgroundColor: Colors.surfaceElevated, borderRadius: 14,
-    padding: 16, alignItems: 'center',
-  },
+  infoCard: { backgroundColor: Colors.surfaceElevated, borderRadius: 14, padding: 16, alignItems: 'center' },
   infoCardText: { fontFamily: 'Inter_600SemiBold', fontSize: 15, color: Colors.text, textAlign: 'center' },
 
-  // Duration picker
-  durPickerCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: Colors.surfaceElevated, borderRadius: 16,
-    paddingHorizontal: 28, paddingVertical: 18,
-  },
+  durPickerCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surfaceElevated, borderRadius: 16, paddingHorizontal: 28, paddingVertical: 18 },
   durPickerBtn: { fontFamily: 'Inter_400Regular', fontSize: 34, color: Colors.textSecondary, lineHeight: 40 },
   durPickerValue: { fontFamily: 'Inter_700Bold', fontSize: 52, color: Colors.text },
   endDateText: { fontFamily: 'Inter_500Medium', fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
 
-  // Build your own
-  byoRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.border, padding: 14,
-  },
+  byoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.border, padding: 14 },
   byoRowIcon: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   byoRowLabel: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: Colors.text },
   byoRowSub: { fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
@@ -1150,71 +1114,44 @@ const styles = StyleSheet.create({
   toggleThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: Colors.textSecondary },
   toggleThumbOn: { backgroundColor: '#fff', alignSelf: 'flex-end' },
 
-  // Blue button (shared)
   blueBtn: { backgroundColor: BLUE, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   blueBtnText: { fontFamily: 'Inter_700Bold', fontSize: 16, color: '#fff' },
 
-  // Guide screens
-  guideScreen: {
-    flex: 1, backgroundColor: Colors.background, paddingHorizontal: 28, paddingTop: 20, paddingBottom: 32,
-  },
-  guideCloseBtn: {
-    position: 'absolute', top: 20, right: 24,
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
-    alignItems: 'center', justifyContent: 'center', zIndex: 10,
-  },
+  // Guide
+  guideScreen: { flex: 1, backgroundColor: Colors.background, paddingHorizontal: 28, paddingTop: 20, paddingBottom: 32 },
+  guideCloseBtn: { position: 'absolute', top: 20, right: 24, width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
   progressDashes: { flexDirection: 'row', gap: 6, marginBottom: 0 },
   progressDash: { flex: 1, height: 3, borderRadius: 2, backgroundColor: Colors.border },
   progressDashActive: { backgroundColor: Colors.text },
 
-  guideCenterContent: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 24 },
-  guideLargeIcon: {
-    width: 110, height: 110, borderRadius: 55, alignItems: 'center', justifyContent: 'center',
-  },
-  guideLargeTitle: {
-    fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.text, textAlign: 'center', lineHeight: 38,
-  },
+  guideCenterContent: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 20 },
+  guideLargeIcon: { width: 110, height: 110, borderRadius: 55, alignItems: 'center', justifyContent: 'center' },
+  guideLargeTitle: { fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.text, textAlign: 'center', lineHeight: 38 },
   guideBody: { fontFamily: 'Inter_400Regular', fontSize: 16, color: '#7AADFF', textAlign: 'center', lineHeight: 26 },
   guideBodySmall: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#7AADFF', textAlign: 'center', lineHeight: 22 },
+  guideTapHint: { fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textTertiary, marginTop: 4 },
 
   guidePositionTitle: { fontFamily: 'Inter_700Bold', fontSize: 26, color: Colors.text, textAlign: 'center' },
   guidePositionSub: { fontFamily: 'Inter_400Regular', fontSize: 15, color: '#7AADFF', textAlign: 'center', lineHeight: 24 },
-  stickFigureWrap: { alignItems: 'center', justifyContent: 'center', marginVertical: 8 },
+  guideImgWrap: { alignItems: 'center', justifyContent: 'center' },
+  guideImg: { width: 260, height: 160 },
   guideLikeThis: { fontFamily: 'Inter_400Regular', fontSize: 15, color: Colors.textSecondary },
 
-  guideNextBtn: {
-    width: 56, height: 56, borderRadius: 28, backgroundColor: BLUE,
-    alignItems: 'center', justifyContent: 'center', alignSelf: 'center',
-  },
-
-  // App grid (spending minutes)
+  // App grid
   appGridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, width: 230, justifyContent: 'center' },
-  appGridCell: {
-    width: 64, height: 64, borderRadius: 14,
-    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  appGridCellHighlight: {
-    borderColor: BLUE, borderWidth: 2,
-    backgroundColor: Colors.surfaceElevated,
-  },
+  appGridCell: { width: 64, height: 64, borderRadius: 14, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  appGridCellHighlight: { borderColor: BLUE, borderWidth: 2, backgroundColor: Colors.surfaceElevated },
 
-  // Bar chart
-  barChartWrap: { width: '100%', position: 'relative', height: 160 },
-  barChartLabels: {
-    position: 'absolute', left: 0, top: 10, bottom: 0,
-    justifyContent: 'space-between', paddingBottom: 10,
-  },
-  barChartLabel: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textTertiary },
+  // Bar chart (banked minutes)
+  barChartContainer: { width: '100%', height: 140, borderRadius: 12, backgroundColor: Colors.surface, overflow: 'hidden', padding: 12, gap: 0 },
+  barChartRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  barChartLabel: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textTertiary, width: 28, textAlign: 'right' },
+  barChartFill: {},
 
   // Countdown
   countdownContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 24, paddingHorizontal: 32 },
   countdownChallengeLabel: { fontFamily: 'Inter_700Bold', fontSize: 18 },
-  countdownRing: {
-    width: 160, height: 160, borderRadius: 80, borderWidth: 3,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surface,
-  },
+  countdownRing: { width: 160, height: 160, borderRadius: 80, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surface },
   countdownNumber: { fontFamily: 'Inter_700Bold', fontSize: 80, color: Colors.text },
   countdownGo: { fontFamily: 'Inter_700Bold', fontSize: 52 },
   countdownHint: { fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textTertiary },
@@ -1229,34 +1166,20 @@ const styles = StyleSheet.create({
   repOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   repCount: { fontFamily: 'Inter_700Bold', fontSize: 32, color: Colors.text },
   repTarget: { fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textSecondary },
-  earnedChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center',
-    backgroundColor: Colors.surfaceElevated, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 8,
-  },
+  earnedChip: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', backgroundColor: Colors.surfaceElevated, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 8 },
   earnedChipText: { fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   trackerWrap: { flex: 1, borderRadius: 16, overflow: 'hidden', backgroundColor: Colors.surface },
 
   // Complete
   completeContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 16 },
-  completeBadge: {
-    width: 110, height: 110, borderRadius: 34, backgroundColor: Colors.surface,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 2,
-  },
+  completeBadge: { width: 110, height: 110, borderRadius: 34, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
   completeTitle: { fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.text },
   completeChallengeName: { fontFamily: 'Inter_500Medium', fontSize: 15 },
-  statsRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.border,
-    padding: 20, gap: 0, width: '100%',
-  },
+  statsRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, padding: 20, width: '100%' },
   stat: { flex: 1, alignItems: 'center', gap: 4 },
   statValue: { fontFamily: 'Inter_700Bold', fontSize: 32 },
   statLabel: { fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary },
   statDivider: { width: 1, height: 44, backgroundColor: Colors.border },
-  unlockBanner: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    backgroundColor: Colors.successMuted, borderRadius: 14, borderWidth: 1, borderColor: Colors.success + '33',
-    padding: 14, width: '100%',
-  },
+  unlockBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: Colors.successMuted, borderRadius: 14, borderWidth: 1, borderColor: Colors.success + '33', padding: 14, width: '100%' },
   unlockBannerText: { fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.success, flex: 1, lineHeight: 20 },
 });
