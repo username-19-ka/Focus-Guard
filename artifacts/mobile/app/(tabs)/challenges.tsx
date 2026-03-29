@@ -94,37 +94,14 @@ function diffDescription(c: ChallengeConfig, diff: DifficultyKey, customReps: nu
   return `Every ${d.repsPerUnit} ${eName}s earns a minute`;
 }
 
-// ─── Inline SVG exercise icons ────────────────────────────────────────────────
+const PUSHUP_IMG = require('../../assets/images/pushup-icon.png');
+const SQUAT_IMG  = require('../../assets/images/squat-icon.png');
 
-function PushupIcon({ color, size = 24 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 32 32">
-      <Circle cx={5} cy={11} r={3} stroke={color} strokeWidth={2} fill="none" />
-      <Line x1={8} y1={13} x2={28} y2={22} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
-      <Line x1={12} y1={15} x2={12} y2={21} stroke={color} strokeWidth={2} strokeLinecap="round" />
-      <Line x1={22} y1={19} x2={22} y2={25} stroke={color} strokeWidth={2} strokeLinecap="round" />
-      <Line x1={4} y1={25} x2={28} y2={25} stroke={color} strokeWidth={1.5} strokeLinecap="round" opacity={0.4} />
-    </Svg>
-  );
-}
-
-function SquatIcon({ color, size = 24 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 32 32">
-      <Circle cx={16} cy={5} r={3} stroke={color} strokeWidth={2} fill="none" />
-      <Line x1={16} y1={8} x2={14} y2={17} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
-      <Line x1={15} y1={12} x2={5}  y2={14} stroke={color} strokeWidth={2} strokeLinecap="round" />
-      <Line x1={14} y1={17} x2={8}  y2={22} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
-      <Line x1={14} y1={17} x2={22} y2={21} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
-      <Line x1={8}  y1={22} x2={9}  y2={28} stroke={color} strokeWidth={2} strokeLinecap="round" />
-      <Line x1={22} y1={21} x2={23} y2={27} stroke={color} strokeWidth={2} strokeLinecap="round" />
-    </Svg>
-  );
-}
+// ─── Exercise icons ────────────────────────────────────────────────────────────
 
 function ChallengeIcon({ id, color, size = 24 }: { id: ExerciseId; color: string; size?: number }) {
-  if (id === 'pushup') return <PushupIcon color={color} size={size} />;
-  if (id === 'squat')  return <SquatIcon color={color} size={size} />;
+  if (id === 'pushup') return <Image source={PUSHUP_IMG} style={{ width: size, height: size }} contentFit="contain" />;
+  if (id === 'squat')  return <Image source={SQUAT_IMG}  style={{ width: size, height: size }} contentFit="contain" />;
   return <Ionicons name="barbell" size={size} color={color} />;
 }
 
@@ -220,8 +197,9 @@ export default function ChallengesScreen() {
     const firstExercise = exercises[0]?.type ?? 'pushup';
     setCurrentExerciseType(firstExercise);
     setReps(0);
+    setGuideStep(0);
     setModal(null);
-    setPhase('session');
+    setPhase('guideWelcome');
   };
 
   const handleSaveByo = () => {
@@ -261,27 +239,7 @@ export default function ChallengesScreen() {
   }, [reps]);
 
   const handleGuideComplete = () => {
-    if (!selected) return;
-    const { repsPerUnit: rpu, minsPerUnit: mpu } = getDiffValues(difficulty, customReps, customMins);
-
-    const exercises: ExerciseStats[] = selected.id === 'buildOwn'
-      ? BUILD_OWN_EXERCISES
-          .filter(ex => byoEnabled[ex.id])
-          .map(ex => ({ type: ex.id as 'pushup' | 'squat', difficulty, repsPerUnit: rpu, minsPerUnit: mpu, totalReps: 0 }))
-      : [{ type: selected.id as 'pushup' | 'squat', difficulty, repsPerUnit: rpu, minsPerUnit: mpu, totalReps: 0 }];
-
-    const c = buildChallenge({
-      primaryType: selected.id as ChallengeType,
-      challengeLabel: selected.label,
-      challengeColor: selected.color,
-      exercises,
-      durationType: durType,
-      durationValue: durValue,
-    });
-    setActiveChallenge(c);
-
-    const firstExercise = exercises[0]?.type ?? 'pushup';
-    setCurrentExerciseType(firstExercise);
+    // Challenge already saved in handleSaveDuration — just start the session
     setPhase('session');
   };
 
