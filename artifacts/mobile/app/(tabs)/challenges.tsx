@@ -18,7 +18,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import Svg, { Circle, Line, Rect } from 'react-native-svg';
+import Svg, { Circle, Line } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/colors';
@@ -76,8 +76,8 @@ const BUILD_OWN_EXERCISES = [
 ];
 
 const GUIDE_STEPS = 6;
-const GUIDE_IMG_1 = require('../../assets/images/pushup-guide-1.png');
-const GUIDE_IMG_2 = require('../../assets/images/pushup-guide-2.png');
+const GUIDE_PUSHUP = require('../../assets/images/guide-pushup.png');
+const GUIDE_SQUAT  = require('../../assets/images/guide-squat.png');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -902,9 +902,11 @@ function GuideWelcome({ challenge, durType, durValue, guideStep, onNext, onClose
         <Feather name="x" size={18} color={Colors.textSecondary} />
       </Pressable>
       <Pressable style={styles.guideCenterContent} onPress={onNext}>
-        <View style={[styles.guideLargeIcon, { backgroundColor: challenge.color + '22' }]}>
-          <ChallengeIcon id={challenge.id} color={challenge.color} size={44} />
-        </View>
+        <Image
+          source={challenge.id === 'squat' ? GUIDE_SQUAT : GUIDE_PUSHUP}
+          style={styles.guideHeroImg}
+          contentFit="contain"
+        />
         <Text style={styles.guideLargeTitle}>Welcome to the{'\n'}{challenge.label}{'\n'}Challenge</Text>
         <Text style={styles.guideBody}>For {durLabel}, you'll earn minutes on your restricted apps by doing {eName}</Text>
         <Text style={styles.guideTapHint}>Tap to continue</Text>
@@ -916,13 +918,7 @@ function GuideWelcome({ challenge, durType, durValue, guideStep, onNext, onClose
 function GuidePosition({ challenge, guideStep, onNext, onClose }: {
   challenge: ChallengeConfig; guideStep: number; onNext: () => void; onClose: () => void;
 }) {
-  const [imgIndex, setImgIndex] = useState(0);
   const isSquat = challenge.id === 'squat';
-  const handleImageTap = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (imgIndex === 0) setImgIndex(1);
-    else onNext();
-  };
   return (
     <View style={styles.guideScreen}>
       <ProgressDashes step={guideStep} />
@@ -935,14 +931,13 @@ function GuidePosition({ challenge, guideStep, onNext, onClose }: {
           {isSquat ? 'Stand 1.5m in front of your phone with full body visible'
             : 'Record pushups with your front facing camera'}
         </Text>
-        <Pressable onPress={handleImageTap} style={styles.guideImgWrap}>
-          {imgIndex === 0
-            ? isSquat
-              ? <SquatGuideSvg />
-              : <Image source={GUIDE_IMG_1} style={styles.guideImg} contentFit="contain" />
-            : <Image source={GUIDE_IMG_2} style={styles.guideImg} contentFit="contain" />
-          }
-          <Text style={styles.guideTapHint}>{imgIndex === 0 ? 'Tap to see next view' : 'Tap to continue'}</Text>
+        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onNext(); }} style={styles.guideImgWrap}>
+          <Image
+            source={isSquat ? GUIDE_SQUAT : GUIDE_PUSHUP}
+            style={styles.guideImg}
+            contentFit="contain"
+          />
+          <Text style={styles.guideTapHint}>Tap to continue</Text>
         </Pressable>
         <Text style={styles.guideLikeThis}>like this</Text>
       </View>
@@ -950,22 +945,6 @@ function GuidePosition({ challenge, guideStep, onNext, onClose }: {
   );
 }
 
-function SquatGuideSvg() {
-  return (
-    <Svg width={220} height={180} viewBox="0 0 220 180">
-      <Circle cx={110} cy={28} r={16} stroke="#4488FF" strokeWidth={2.5} fill="none" />
-      <Line x1={110} y1={44} x2={110} y2={90} stroke="#4488FF" strokeWidth={2.5} />
-      <Line x1={110} y1={60} x2={82}  y2={82} stroke="#4488FF" strokeWidth={2} />
-      <Line x1={110} y1={60} x2={138} y2={82} stroke="#4488FF" strokeWidth={2} />
-      <Line x1={110} y1={90} x2={84}  y2={120} stroke="#4488FF" strokeWidth={2.5} />
-      <Line x1={110} y1={90} x2={136} y2={120} stroke="#4488FF" strokeWidth={2.5} />
-      <Line x1={84}  y1={120} x2={84} y2={155} stroke="#4488FF" strokeWidth={2.5} />
-      <Line x1={136} y1={120} x2={136} y2={155} stroke="#4488FF" strokeWidth={2.5} />
-      <Line x1={55}  y1={155} x2={165} y2={155} stroke="#4488FF" strokeWidth={2} />
-      <Rect x={178} y={90} width={18} height={32} rx={3} stroke="#4488FF" strokeWidth={2} fill="none" />
-    </Svg>
-  );
-}
 
 function GuideSpending({ guideStep, onNext, onClose }: { guideStep: number; onNext: () => void; onClose: () => void }) {
   return (
@@ -1259,6 +1238,7 @@ const styles = StyleSheet.create({
   progressDashActive: { backgroundColor: Colors.text },
   guideCenterContent: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 20 },
   guideLargeIcon: { width: 110, height: 110, borderRadius: 55, alignItems: 'center', justifyContent: 'center' },
+  guideHeroImg: { width: 280, height: 180, marginBottom: 8 },
   guideLargeTitle: { fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.text, textAlign: 'center', lineHeight: 38 },
   guideBody: { fontFamily: 'Inter_400Regular', fontSize: 16, color: '#7AADFF', textAlign: 'center', lineHeight: 26 },
   guideBodySmall: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#7AADFF', textAlign: 'center', lineHeight: 22 },
