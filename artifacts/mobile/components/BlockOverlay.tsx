@@ -1,6 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { useDashboardStore } from '@/store/dashboardStore';
 import { useBankedMinutes } from '@/store/bankedMinutesStore';
+import { useActiveChallenge } from '@/store/activeChallengeStore';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -18,7 +19,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import Colors from '@/constants/colors';
 
-const UNLOCK_PARAGRAPH = `1HtRVjuIFexyllvdtriRCex197403367cfrCdeVTRjdeeojE4SIJdrrikEYOKNrseu4436_FDiufd543hgI8YRERIUGD5yioh_ç-(-'"hggfthGYS`;
+const CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*_-+=[]{}|<>?';
+
+function generateUnlockCode(): string {
+  return Array.from({ length: 100 }, () =>
+    CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
+  ).join('');
+}
 
 const { width: W } = Dimensions.get('window');
 
@@ -33,6 +40,12 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
   const router = useRouter();
   const { incrementShame } = useDashboardStore();
   const { bankedMinutes, grantAccess, hasAccess, remainingSeconds, tick, loadFromStorage } = useBankedMinutes();
+  const activeChallenge = useActiveChallenge(s => s.challenge);
+  const isChallengeActive = !!activeChallenge;
+
+  // Generate a unique random code per overlay instance (never re-randomise)
+  const [unlockCode] = useState<string>(generateUnlockCode);
+
   const [typed, setTyped] = useState('');
   const [shakeAnim] = useState(new Animated.Value(0));
   const [progress, setProgress] = useState(0);
@@ -85,16 +98,23 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
 
   const handleChange = (text: string) => {
     if (unlocking) return;
-    if (!UNLOCK_PARAGRAPH.startsWith(text)) {
+    // Anti-paste: reject if more than 1 character added at once
+    if (text.length > typed.length + 1) {
+      shake();
+      setTyped('');
+      setProgress(0);
+      return;
+    }
+    if (!unlockCode.startsWith(text)) {
       shake();
       setTyped('');
       setProgress(0);
       return;
     }
     setTyped(text);
-    const pct = text.length / UNLOCK_PARAGRAPH.length;
+    const pct = text.length / unlockCode.length;
     setProgress(pct);
-    if (text.length === UNLOCK_PARAGRAPH.length) {
+    if (text.length === unlockCode.length) {
       handleUnlock();
     }
   };
@@ -119,7 +139,7 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
   };
 
   const correctSoFar = typed.length;
-  const upcoming = UNLOCK_PARAGRAPH.substring(correctSoFar, correctSoFar + 30);
+  const upcoming = unlockCode.substring(correctSoFar, correctSoFar + 30);
 
   const remainMin = Math.floor(remainSec / 60);
   const remainS = remainSec % 60;
@@ -139,7 +159,11 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
 
           <Text style={styles.blockedTitle}>{appName} is Blocked</Text>
           <Text style={styles.blockedSubtitle}>
-            You've hit your daily limit. Unlock by typing the code below — or use your banked minutes.
+            {isChallengeActive && bankedMinutes > 0
+              ? `You have ${Math.floor(bankedMinutes)} banked minute${Math.floor(bankedMinutes) !== 1 ? 's' : ''} from your challenge. Use them or type the code below.`
+              : isChallengeActive
+              ? 'Challenge mode active. Earn minutes by doing your exercise, or type the full code to unlock.'
+              : 'You\'ve hit your daily limit. Unlock by typing the code below — or use your banked minutes.'}
           </Text>
         </View>
 
@@ -180,15 +204,23 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
           </View>
           <View style={styles.progressRow}>
             <Text style={styles.progressText}>{Math.round(progress * 100)}%</Text>
-            <Text style={styles.progressCount}>{correctSoFar}/{UNLOCK_PARAGRAPH.length} chars</Text>
+            <Text style={styles.progressCount}>{correctSoFar}/{unlockCode.length} chars</Text>
           </View>
         </View>
 
         <View style={[styles.paragraphBox, flashRed && styles.paragraphBoxError]}>
-          <Text style={styles.paragraphLabel}>Unlock Code</Text>
+          <View style={styles.paragraphLabelRow}>
+            <Text style={styles.paragraphLabel}>Hard-Mode Unlock Code</Text>
+            {isChallengeActive && (
+              <View style={styles.challengeBadge}>
+                <Feather name="zap" size={9} color={Colors.accent} />
+                <Text style={styles.challengeBadgeText}>Challenge Active</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.paragraphFull}>
-            <Text style={styles.typedCorrect}>{UNLOCK_PARAGRAPH.substring(0, correctSoFar)}</Text>
-            <Text style={styles.paragraphRemaining}>{UNLOCK_PARAGRAPH.substring(correctSoFar)}</Text>
+            <Text style={styles.typedCorrect}>{unlockCode.substring(0, correctSoFar)}</Text>
+            <Text style={styles.paragraphRemaining}>{unlockCode.substring(correctSoFar)}</Text>
           </Text>
         </View>
 
@@ -293,7 +325,13 @@ const styles = StyleSheet.create({
     borderColor: Colors.border, padding: 12, gap: 6,
   },
   paragraphBoxError: { borderColor: Colors.danger + '88', backgroundColor: Colors.dangerMuted },
+  paragraphLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   paragraphLabel: { fontFamily: 'Inter_600SemiBold', fontSize: 10, color: Colors.textTertiary, textTransform: 'uppercase', letterSpacing: 1 },
+  challengeBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: Colors.accentMuted, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  challengeBadgeText: { fontFamily: 'Inter_600SemiBold', fontSize: 9, color: Colors.accent },
   paragraphFull: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 20, letterSpacing: 0.3 },
   typedCorrect: { color: Colors.accent },
   paragraphRemaining: { color: Colors.textSecondary },

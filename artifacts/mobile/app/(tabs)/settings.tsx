@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -13,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
+import { useActiveChallenge } from '@/store/activeChallengeStore';
 import Colors from '@/constants/colors';
 
 type AppConfig = {
@@ -222,6 +224,8 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const [apps, setApps] = useState<AppConfig[]>(DEFAULT_APPS);
   const [showAddModal, setShowAddModal] = useState(false);
+  const activeChallenge = useActiveChallenge(s => s.challenge);
+  const isChallengeActive = !!activeChallenge;
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   useEffect(() => {
@@ -308,6 +312,33 @@ export default function SettingsScreen() {
         onAdd={addApp}
         onClose={() => setShowAddModal(false)}
       />
+
+      {isChallengeActive && (
+        <View style={[styles.challengeOverlay, { paddingTop: topPad }]}>
+          <View style={styles.challengeOverlayCard}>
+            <View style={styles.challengeOverlayIcon}>
+              <Feather name="lock" size={28} color={Colors.accent} />
+            </View>
+            <Text style={styles.challengeOverlayTitle}>Challenge Mode Active</Text>
+            <Text style={styles.challengeOverlayDesc}>
+              App limits are managed automatically by your active challenge.{'\n'}
+              Complete your challenge or end it to edit app settings.
+            </Text>
+            {activeChallenge && (
+              <View style={styles.challengeOverlayBadge}>
+                <Feather name="zap" size={13} color={Colors.accent} />
+                <Text style={styles.challengeOverlayBadgeText}>{activeChallenge.challengeLabel}</Text>
+              </View>
+            )}
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/(tabs)/challenges'); }}
+              style={styles.challengeOverlayBtn}
+            >
+              <Text style={styles.challengeOverlayBtnText}>Go to Challenges</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </>
   );
 }
@@ -542,5 +573,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     textAlign: 'center',
+  },
+  challengeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: Colors.background + 'F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  challengeOverlayCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: Colors.accent + '44',
+    padding: 28,
+    alignItems: 'center',
+    gap: 14,
+    width: '100%',
+  },
+  challengeOverlayIcon: {
+    width: 64, height: 64, borderRadius: 18,
+    backgroundColor: Colors.accentMuted,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  challengeOverlayTitle: {
+    fontFamily: 'Inter_700Bold', fontSize: 20, color: Colors.text, textAlign: 'center',
+  },
+  challengeOverlayDesc: {
+    fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textSecondary,
+    textAlign: 'center', lineHeight: 22,
+  },
+  challengeOverlayBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: Colors.accentMuted, borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 6,
+  },
+  challengeOverlayBadgeText: {
+    fontFamily: 'Inter_600SemiBold', fontSize: 13, color: Colors.accent,
+  },
+  challengeOverlayBtn: {
+    backgroundColor: Colors.accent, borderRadius: 14,
+    paddingVertical: 13, paddingHorizontal: 32, marginTop: 4,
+  },
+  challengeOverlayBtnText: {
+    fontFamily: 'Inter_700Bold', fontSize: 15, color: Colors.background,
   },
 });
