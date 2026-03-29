@@ -902,11 +902,9 @@ function GuideWelcome({ challenge, durType, durValue, guideStep, onNext, onClose
         <Feather name="x" size={18} color={Colors.textSecondary} />
       </Pressable>
       <Pressable style={styles.guideCenterContent} onPress={onNext}>
-        <Image
-          source={challenge.id === 'squat' ? GUIDE_SQUAT : GUIDE_PUSHUP}
-          style={styles.guideHeroImg}
-          contentFit="contain"
-        />
+        <View style={[styles.guideLargeIcon, { backgroundColor: challenge.color + '22' }]}>
+          <ChallengeIcon id={challenge.id} color={challenge.color} size={44} />
+        </View>
         <Text style={styles.guideLargeTitle}>Welcome to the{'\n'}{challenge.label}{'\n'}Challenge</Text>
         <Text style={styles.guideBody}>For {durLabel}, you'll earn minutes on your restricted apps by doing {eName}</Text>
         <Text style={styles.guideTapHint}>Tap to continue</Text>
