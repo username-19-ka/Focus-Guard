@@ -1,11 +1,5 @@
-import React, { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withSpring,
-} from 'react-native-reanimated';
+import React, { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, Text, View } from 'react-native';
 import Colors from '@/constants/colors';
 
 interface WeeklyBarChartProps {
@@ -33,16 +27,18 @@ function Bar({
   isToday: boolean;
 }) {
   const ratio = max > 0 ? value / max : 0;
-  const scaleY = useSharedValue(0);
+  const heightAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    scaleY.value = withDelay(index * 60, withSpring(ratio, { damping: 14, stiffness: 120 }));
+    setTimeout(() => {
+      Animated.spring(heightAnim, {
+        toValue: ratio * chartHeight,
+        useNativeDriver: false,
+        damping: 14,
+        stiffness: 120,
+      }).start();
+    }, index * 60);
   }, [value]);
-
-  const animStyle = useAnimatedStyle(() => ({
-    height: scaleY.value * chartHeight,
-    minHeight: scaleY.value > 0 ? 4 : 0,
-  }));
 
   return (
     <View style={styles.barCol}>
@@ -51,8 +47,7 @@ function Bar({
         <Animated.View
           style={[
             styles.barFill,
-            animStyle,
-            { backgroundColor: isToday ? color : color + '88' },
+            { height: heightAnim, backgroundColor: isToday ? color : color + '88' },
             isToday && styles.barFillActive,
           ]}
         />
