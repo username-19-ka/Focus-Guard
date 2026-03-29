@@ -1,0 +1,49 @@
+Role: Senior React Native & AI Vision Engineer.
+
+Task: Implement the "Challenges" ecosystem and "Managed Apps" overhaul for FocusGuard based on provided UI mockups.
+
+Part 1: Managed Apps Overhaul (image_eec57d.png)
+
+Delete Functionality: Add a "Delete" (trash can) icon next to every app in the "Managed Apps" list. Clicking it removes the app from the tracking list.
+
+Add App Button: At the bottom of the "Managed Apps" list, add a prominent "+ Add an App" button. This should open a modal to select a new app to manage from the device.
+
+Part 2: The Challenge Engine (IMG_0024.jpg to IMG_0033.PNG)
+
+Challenge Selector: Update the Challenges screen to match IMG_0024. Replace current cards with: "Pushup to Scroll," "Squat to Scroll," and "Build Your Own."
+
+Difficulty Presets (IMG_0025, image1.jpg):
+
+When a user selects a challenge, show the Difficulty Selection modal.
+
+Pushup/Squat Logic:
+
+Easy: 1 rep = 3 minutes earned.
+
+Medium: 1 rep = 1 minute earned.
+
+Hard: 3 reps = 1 minute earned.
+
+Athlete: 10 reps = 1 minute earned.
+
+Custom Mode (image2.jpg): Use the dual-incrementer UI to let users set their own "Reps vs. Minutes" ratio.
+
+Build Your Own (image0.jpg): This modal should let users toggle "Pushups" and "Squats" simultaneously. If both are on, the user must do a circuit of both to earn time.
+
+Duration & Onboarding (IMG_0026, IMG_0028, IMG_0029):
+
+After setting difficulty, show the Duration Modal (IMG_0026) to choose how many days the challenge lasts.
+
+Before the camera opens, show the Guide Sequence:
+
+"Welcome" (IMG_0028).
+
+"Positioning Guide" (IMG_0029) showing the user how to place the phone on the floor.
+
+Part 3: MediaPipe & Banked Minutes Logic
+
+Pose Detection: Use @tensorflow-models/pose-detection to count reps based on the distance between the nose/shoulders and the floor (bottom of screen).
+
+Banked Minutes: Create a useBankedMinutes store. Every rep completed adds minutes to the bank. Blocked apps can only be opened if bankedMinutes > 0. Minutes should decrease in real-time while a blocked app is in the foreground.
+
+Action: Refactor artifacts/mobile to support these flows. Ensure the transition between modals is smooth and use expo-camera for the challenge execution.

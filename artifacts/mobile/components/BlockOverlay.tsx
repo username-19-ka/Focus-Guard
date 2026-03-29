@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { useDashboardStore } from '@/store/dashboardStore';
+import { useBankedMinutes } from '@/store/bankedMinutesStore';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -30,13 +31,14 @@ type Props = {
 export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { incrementShame, isChallengeUnlocked } = useDashboardStore();
+  const { incrementShame } = useDashboardStore();
+  const { bankedMinutes, grantAccess, hasAccess, remainingSeconds, tick, loadFromStorage } = useBankedMinutes();
   const [typed, setTyped] = useState('');
   const [shakeAnim] = useState(new Animated.Value(0));
   const [progress, setProgress] = useState(0);
   const [flashRed, setFlashRed] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
-  const [challengeUnlocked, setChallengeUnlocked] = useState(false);
+  const [remainSec, setRemainSec] = useState(0);
   const shieldScale = useRef(new Animated.Value(1)).current;
   const inputRef = useRef<TextInput>(null);
 
@@ -44,26 +46,28 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
   useEffect(() => {
+    loadFromStorage();
+  }, []);
+
+  // If already in an active banked session, auto-dismiss immediately
+  useEffect(() => {
+    if (hasAccess()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onUnlocked();
+      return;
+    }
     Animated.sequence([
       Animated.timing(shieldScale, { toValue: 1.08, duration: 300, useNativeDriver: true }),
       Animated.spring(shieldScale, { toValue: 1, useNativeDriver: true, damping: 12 }),
     ]).start();
   }, []);
 
-  // Poll for challenge completion every 2 seconds
+  // Tick every second to update remaining time display
   useEffect(() => {
-    if (isChallengeUnlocked()) {
-      setChallengeUnlocked(true);
-      return;
-    }
     const timer = setInterval(() => {
-      if (isChallengeUnlocked()) {
-        setChallengeUnlocked(true);
-        clearInterval(timer);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setTimeout(() => onUnlocked(), 1500);
-      }
-    }, 2000);
+      tick();
+      setRemainSec(remainingSeconds());
+    }, 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -81,20 +85,15 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
 
   const handleChange = (text: string) => {
     if (unlocking) return;
-
-    const expected = UNLOCK_PARAGRAPH.substring(0, text.length);
-
     if (!UNLOCK_PARAGRAPH.startsWith(text)) {
       shake();
       setTyped('');
       setProgress(0);
       return;
     }
-
     setTyped(text);
     const pct = text.length / UNLOCK_PARAGRAPH.length;
     setProgress(pct);
-
     if (text.length === UNLOCK_PARAGRAPH.length) {
       handleUnlock();
     }
@@ -103,19 +102,27 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
   const handleUnlock = async () => {
     setUnlocking(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
     await incrementShame(appName);
-
     Animated.sequence([
       Animated.timing(shieldScale, { toValue: 1.2, duration: 200, useNativeDriver: true }),
       Animated.spring(shieldScale, { toValue: 1, useNativeDriver: true }),
     ]).start();
-
     setTimeout(() => onUnlocked(), 700);
+  };
+
+  const handleUseBankedTime = () => {
+    const granted = grantAccess();
+    if (!granted) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setRemainSec(remainingSeconds());
+    setTimeout(() => onUnlocked(), 600);
   };
 
   const correctSoFar = typed.length;
   const upcoming = UNLOCK_PARAGRAPH.substring(correctSoFar, correctSoFar + 30);
+
+  const remainMin = Math.floor(remainSec / 60);
+  const remainS = remainSec % 60;
 
   return (
     <Modal visible animationType="fade" statusBarTranslucent>
@@ -132,8 +139,31 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
 
           <Text style={styles.blockedTitle}>{appName} is Blocked</Text>
           <Text style={styles.blockedSubtitle}>
-            You've hit your daily limit. To unlock, type the paragraph below — perfectly.
+            You've hit your daily limit. Unlock by typing the code below — or use your banked minutes.
           </Text>
+        </View>
+
+        {/* Banked minutes quick-unlock */}
+        {bankedMinutes > 0 && !unlocking && (
+          <Pressable
+            onPress={handleUseBankedTime}
+            style={({ pressed }) => [styles.bankedBtn, pressed && { opacity: 0.82 }]}
+          >
+            <View style={styles.bankedBtnLeft}>
+              <Feather name="zap" size={20} color={Colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bankedBtnTitle}>Use {Math.floor(bankedMinutes)} banked minute{Math.floor(bankedMinutes) !== 1 ? 's' : ''}</Text>
+              <Text style={styles.bankedBtnSub}>Opens the app immediately — no typing required</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color={Colors.accent} />
+          </Pressable>
+        )}
+
+        <View style={styles.orRow}>
+          <View style={styles.orLine} />
+          <Text style={styles.orText}>{bankedMinutes > 0 ? 'or type to unlock' : 'type to unlock'}</Text>
+          <View style={styles.orLine} />
         </View>
 
         <View style={styles.progressSection}>
@@ -163,7 +193,7 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
         </View>
 
         <View style={styles.nextChars}>
-          <Text style={styles.nextLabel}>Next characters:</Text>
+          <Text style={styles.nextLabel}>Next:</Text>
           <Text style={styles.nextText}>{upcoming}</Text>
         </View>
 
@@ -184,47 +214,33 @@ export function BlockOverlay({ appName, onUnlocked, onClose }: Props) {
             editable={!unlocking}
           />
           {typed.length > 0 && (
-            <Pressable
-              style={styles.clearBtn}
-              onPress={() => { setTyped(''); setProgress(0); }}
-              hitSlop={8}
-            >
+            <Pressable style={styles.clearBtn} onPress={() => { setTyped(''); setProgress(0); }} hitSlop={8}>
               <Feather name="x-circle" size={18} color={Colors.textTertiary} />
             </Pressable>
           )}
         </Animated.View>
 
-        <View style={styles.warningRow}>
-          <Feather name="alert-triangle" size={13} color={Colors.textTertiary} />
-          <Text style={styles.warningText}>Any typo resets your progress. No copy/paste allowed.</Text>
-        </View>
+        <View style={styles.bottomRow}>
+          <View style={styles.warningRow}>
+            <Feather name="alert-triangle" size={12} color={Colors.textTertiary} />
+            <Text style={styles.warningText}>Any typo resets progress.</Text>
+          </View>
 
-        {/* Alternative: complete a physical challenge */}
-        {!unlocking && !challengeUnlocked && (
-          <Pressable
-            onPress={() => {
-              onClose();
-              router.push('/(tabs)/challenges');
-            }}
-            style={({ pressed }) => [styles.challengeAltBtn, pressed && { opacity: 0.8 }]}
-          >
-            <Feather name="zap" size={14} color={Colors.accent} />
-            <Text style={styles.challengeAltText}>Complete a physical challenge instead</Text>
-            <Feather name="chevron-right" size={14} color={Colors.accent} />
-          </Pressable>
-        )}
+          {!unlocking && (
+            <Pressable
+              onPress={() => { onClose(); router.push('/(tabs)/challenges'); }}
+              style={({ pressed }) => [styles.challengeLink, pressed && { opacity: 0.7 }]}
+            >
+              <Feather name="zap" size={13} color={Colors.accent} />
+              <Text style={styles.challengeLinkText}>Earn minutes instead</Text>
+            </Pressable>
+          )}
+        </View>
 
         {unlocking && (
           <View style={styles.successBanner}>
             <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
             <Text style={styles.successText}>Unlocked! Wall of Shame +1</Text>
-          </View>
-        )}
-
-        {challengeUnlocked && (
-          <View style={styles.challengeUnlockBanner}>
-            <Ionicons name="fitness" size={20} color={Colors.success} />
-            <Text style={styles.challengeUnlockText}>Challenge complete — unlocking now!</Text>
           </View>
         )}
       </View>
@@ -237,196 +253,78 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
     paddingHorizontal: 20,
-    gap: 16,
+    gap: 12,
   },
-  topSection: {
-    alignItems: 'center',
-    gap: 10,
-    paddingTop: 8,
-  },
-  closeBtn: {
-    alignSelf: 'flex-end',
-    padding: 6,
-    backgroundColor: Colors.surface,
-    borderRadius: 8,
-  },
+  topSection: { alignItems: 'center', gap: 8, paddingTop: 4 },
+  closeBtn: { alignSelf: 'flex-end', padding: 6, backgroundColor: Colors.surface, borderRadius: 8 },
   shieldWrap: {
-    width: 100,
-    height: 100,
-    borderRadius: 28,
-    backgroundColor: Colors.dangerMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 8,
+    width: 90, height: 90, borderRadius: 24,
+    backgroundColor: Colors.dangerMuted, alignItems: 'center', justifyContent: 'center', marginVertical: 4,
   },
-  lockIcon: {
-    position: 'absolute',
-    bottom: 16,
-    right: 16,
+  lockIcon: { position: 'absolute', bottom: 12, right: 12 },
+  blockedTitle: { fontFamily: 'Inter_700Bold', fontSize: 22, color: Colors.text, textAlign: 'center' },
+  blockedSubtitle: { fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+
+  bankedBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.accentMuted, borderRadius: 16, borderWidth: 1.5,
+    borderColor: Colors.accent + '55', padding: 14,
   },
-  blockedTitle: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 24,
-    color: Colors.text,
-    textAlign: 'center',
+  bankedBtnLeft: {
+    width: 40, height: 40, borderRadius: 10, backgroundColor: Colors.accent + '22',
+    alignItems: 'center', justifyContent: 'center',
   },
-  blockedSubtitle: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  progressSection: { gap: 6 },
-  progressTrack: {
-    height: 6,
-    backgroundColor: Colors.border,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: { height: 6, borderRadius: 3 },
-  progressRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  progressText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 13,
-    color: Colors.accent,
-  },
-  progressCount: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    color: Colors.textTertiary,
-  },
+  bankedBtnTitle: { fontFamily: 'Inter_700Bold', fontSize: 15, color: Colors.accent },
+  bankedBtnSub: { fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.accent + 'AA', marginTop: 1 },
+
+  orRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  orLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  orText: { fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textTertiary },
+
+  progressSection: { gap: 4 },
+  progressTrack: { height: 5, backgroundColor: Colors.border, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: 5, borderRadius: 3 },
+  progressRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  progressText: { fontFamily: 'Inter_700Bold', fontSize: 12, color: Colors.accent },
+  progressCount: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textTertiary },
+
   paragraphBox: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 14,
-    gap: 8,
+    backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1,
+    borderColor: Colors.border, padding: 12, gap: 6,
   },
-  paragraphBoxError: {
-    borderColor: Colors.danger + '88',
-    backgroundColor: Colors.dangerMuted,
-  },
-  paragraphLabel: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 11,
-    color: Colors.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  paragraphFull: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 13,
-    lineHeight: 22,
-    letterSpacing: 0.3,
-  },
-  typedCorrect: {
-    color: Colors.accent,
-  },
-  paragraphRemaining: {
-    color: Colors.textSecondary,
-  },
+  paragraphBoxError: { borderColor: Colors.danger + '88', backgroundColor: Colors.dangerMuted },
+  paragraphLabel: { fontFamily: 'Inter_600SemiBold', fontSize: 10, color: Colors.textTertiary, textTransform: 'uppercase', letterSpacing: 1 },
+  paragraphFull: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 20, letterSpacing: 0.3 },
+  typedCorrect: { color: Colors.accent },
+  paragraphRemaining: { color: Colors.textSecondary },
+
   nextChars: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.surfaceElevated, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
   },
-  nextLabel: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 12,
-    color: Colors.textTertiary,
-  },
-  nextText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 13,
-    color: Colors.text,
-    letterSpacing: 0.5,
-    flex: 1,
-  },
+  nextLabel: { fontFamily: 'Inter_500Medium', fontSize: 11, color: Colors.textTertiary },
+  nextText: { fontFamily: 'Inter_700Bold', fontSize: 12, color: Colors.text, letterSpacing: 0.5, flex: 1 },
+
   inputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    paddingHorizontal: 14,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1.5,
+    borderColor: Colors.border, paddingHorizontal: 12,
   },
   input: {
-    flex: 1,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 15,
-    color: Colors.text,
-    paddingVertical: 14,
-    letterSpacing: 0.3,
+    flex: 1, fontFamily: 'Inter_400Regular', fontSize: 14,
+    color: Colors.text, paddingVertical: 12, letterSpacing: 0.3,
   },
   clearBtn: { paddingLeft: 8 },
-  warningRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    justifyContent: 'center',
-  },
-  warningText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    color: Colors.textTertiary,
-    textAlign: 'center',
-  },
+
+  bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  warningRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  warningText: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textTertiary },
+  challengeLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  challengeLinkText: { fontFamily: 'Inter_500Medium', fontSize: 12, color: Colors.accent },
+
   successBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    justifyContent: 'center',
-    backgroundColor: Colors.successMuted,
-    borderRadius: 12,
-    paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center',
+    backgroundColor: Colors.successMuted, borderRadius: 12, paddingVertical: 14,
   },
-  successText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 15,
-    color: Colors.success,
-  },
-  challengeAltBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: Colors.accentMuted,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.accent + '44',
-    paddingVertical: 12,
-  },
-  challengeAltText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 13,
-    color: Colors.accent,
-    flex: 1,
-    textAlign: 'center',
-  },
-  challengeUnlockBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    justifyContent: 'center',
-    backgroundColor: Colors.successMuted,
-    borderRadius: 12,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: Colors.success + '44',
-  },
-  challengeUnlockText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 15,
-    color: Colors.success,
-  },
+  successText: { fontFamily: 'Inter_700Bold', fontSize: 15, color: Colors.success },
 });

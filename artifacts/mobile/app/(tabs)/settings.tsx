@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
 import {
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -32,24 +33,40 @@ const TIME_LIMIT_OPTIONS = [15, 30, 45, 60, 90, 120];
 
 const DEFAULT_APPS: AppConfig[] = [
   { id: 'instagram', name: 'Instagram', icon: 'logo-instagram', color: '#E1306C', enabled: true, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 60 },
-  { id: 'tiktok', name: 'TikTok', icon: 'logo-tiktok', color: '#010101', enabled: true, expanded: false, lockDuration: 15, unlockGoals: 2, unlockTimeLimit: 30 },
+  { id: 'tiktok', name: 'TikTok', icon: 'play-circle', color: '#69C9D0', enabled: true, expanded: false, lockDuration: 15, unlockGoals: 2, unlockTimeLimit: 30 },
   { id: 'twitter', name: 'Twitter', icon: 'logo-twitter', color: '#1DA1F2', enabled: false, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 45 },
   { id: 'youtube', name: 'YouTube', icon: 'logo-youtube', color: '#FF0000', enabled: true, expanded: false, lockDuration: 60, unlockGoals: 5, unlockTimeLimit: 90 },
   { id: 'reddit', name: 'Reddit', icon: 'logo-reddit', color: '#FF4500', enabled: false, expanded: false, lockDuration: 30, unlockGoals: 2, unlockTimeLimit: 60 },
   { id: 'facebook', name: 'Facebook', icon: 'logo-facebook', color: '#1877F2', enabled: false, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 60 },
 ];
 
+const ALL_POSSIBLE_APPS: Omit<AppConfig, 'enabled' | 'expanded' | 'lockDuration' | 'unlockGoals' | 'unlockTimeLimit'>[] = [
+  { id: 'instagram', name: 'Instagram', icon: 'logo-instagram', color: '#E1306C' },
+  { id: 'tiktok', name: 'TikTok', icon: 'play-circle', color: '#69C9D0' },
+  { id: 'twitter', name: 'Twitter', icon: 'logo-twitter', color: '#1DA1F2' },
+  { id: 'youtube', name: 'YouTube', icon: 'logo-youtube', color: '#FF0000' },
+  { id: 'reddit', name: 'Reddit', icon: 'logo-reddit', color: '#FF4500' },
+  { id: 'facebook', name: 'Facebook', icon: 'logo-facebook', color: '#1877F2' },
+  { id: 'snapchat', name: 'Snapchat', icon: 'camera', color: '#FFCD00' },
+  { id: 'pinterest', name: 'Pinterest', icon: 'bookmark', color: '#E60023' },
+  { id: 'linkedin', name: 'LinkedIn', icon: 'briefcase', color: '#0077B5' },
+  { id: 'discord', name: 'Discord', icon: 'chatbubbles', color: '#5865F2' },
+  { id: 'twitch', name: 'Twitch', icon: 'tv', color: '#9146FF' },
+  { id: 'whatsapp', name: 'WhatsApp', icon: 'chatbubble-ellipses', color: '#25D366' },
+  { id: 'netflix', name: 'Netflix', icon: 'film', color: '#E50914' },
+  { id: 'spotify', name: 'Spotify', icon: 'musical-notes', color: '#1DB954' },
+  { id: 'telegram', name: 'Telegram', icon: 'paper-plane', color: '#2CA5E0' },
+];
+
 function PickerRow({ label, value, options, onChange }: {
   label: string; value: number; options: number[]; onChange: (v: number) => void;
 }) {
   const idx = options.indexOf(value);
-
   const cycle = (dir: 1 | -1) => {
     const next = (idx + dir + options.length) % options.length;
     onChange(options[next]);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
-
   return (
     <View style={styles.pickerRow}>
       <Text style={styles.pickerLabel}>{label}</Text>
@@ -66,15 +83,16 @@ function PickerRow({ label, value, options, onChange }: {
   );
 }
 
-function AppCard({ app, onToggle, onExpand, onUpdate }: {
+function AppCard({ app, onToggle, onExpand, onUpdate, onDelete }: {
   app: AppConfig;
   onToggle: () => void;
   onExpand: () => void;
   onUpdate: (field: keyof AppConfig, val: any) => void;
+  onDelete: () => void;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const chevronRotation = useSharedValue(app.expanded ? 180 : 0);
   chevronRotation.value = withSpring(app.expanded ? 180 : 0, { damping: 18 });
-
   const chevronStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${chevronRotation.value}deg` }],
   }));
@@ -91,43 +109,110 @@ function AppCard({ app, onToggle, onExpand, onUpdate }: {
             <View style={[styles.toggleThumb, app.enabled && styles.toggleThumbOn]} />
           </View>
         </Pressable>
-        <Animated.View style={chevronStyle}>
-          <Feather name="chevron-down" size={18} color={Colors.textTertiary} />
-        </Animated.View>
+
+        {confirmDelete ? (
+          <View style={styles.deleteConfirmRow}>
+            <Pressable
+              onPress={() => setConfirmDelete(false)}
+              style={styles.cancelDeleteBtn}
+              hitSlop={4}
+            >
+              <Text style={styles.cancelDeleteText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); onDelete(); }}
+              style={styles.confirmDeleteBtn}
+              hitSlop={4}
+            >
+              <Feather name="trash-2" size={14} color={Colors.danger} />
+              <Text style={styles.confirmDeleteText}>Remove</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.cardRightActions}>
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setConfirmDelete(true); }}
+              hitSlop={8}
+              style={styles.trashBtn}
+            >
+              <Feather name="trash-2" size={16} color={Colors.textTertiary} />
+            </Pressable>
+            <Animated.View style={chevronStyle}>
+              <Feather name="chevron-down" size={18} color={Colors.textTertiary} />
+            </Animated.View>
+          </View>
+        )}
       </Pressable>
 
-      {app.expanded && (
+      {app.expanded && !confirmDelete && (
         <View style={styles.expansionPanel}>
           <View style={styles.expansionDivider} />
-          <PickerRow
-            label="Lock Duration"
-            value={app.lockDuration}
-            options={DURATION_OPTIONS}
-            onChange={v => onUpdate('lockDuration', v)}
-          />
+          <PickerRow label="Lock Duration" value={app.lockDuration} options={DURATION_OPTIONS} onChange={v => onUpdate('lockDuration', v)} />
           <View style={styles.internalDivider} />
-          <PickerRow
-            label="Unlock Goals"
-            value={app.unlockGoals}
-            options={GOAL_OPTIONS}
-            onChange={v => onUpdate('unlockGoals', v)}
-          />
+          <PickerRow label="Unlock Goals" value={app.unlockGoals} options={GOAL_OPTIONS} onChange={v => onUpdate('unlockGoals', v)} />
           <View style={styles.internalDivider} />
-          <PickerRow
-            label="Unlock Time Limit"
-            value={app.unlockTimeLimit}
-            options={TIME_LIMIT_OPTIONS}
-            onChange={v => onUpdate('unlockTimeLimit', v)}
-          />
+          <PickerRow label="Unlock Time Limit" value={app.unlockTimeLimit} options={TIME_LIMIT_OPTIONS} onChange={v => onUpdate('unlockTimeLimit', v)} />
         </View>
       )}
     </View>
   );
 }
 
+function AddAppModal({ visible, existingIds, onAdd, onClose }: {
+  visible: boolean;
+  existingIds: string[];
+  onAdd: (app: Omit<AppConfig, 'enabled' | 'expanded' | 'lockDuration' | 'unlockGoals' | 'unlockTimeLimit'>) => void;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const available = ALL_POSSIBLE_APPS.filter(a => !existingIds.includes(a.id));
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[styles.modalContainer, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Add an App</Text>
+          <Pressable onPress={onClose} style={styles.modalCloseBtn} hitSlop={8}>
+            <Feather name="x" size={20} color={Colors.text} />
+          </Pressable>
+        </View>
+        <Text style={styles.modalSubtitle}>Select an app to start tracking and blocking it</Text>
+
+        {available.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Feather name="check-circle" size={40} color={Colors.accent} />
+            <Text style={styles.emptyTitle}>All apps added</Text>
+            <Text style={styles.emptyDesc}>You are already tracking all available apps.</Text>
+          </View>
+        ) : (
+          <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 8, paddingTop: 16 }}>
+            {available.map(app => (
+              <Pressable
+                key={app.id}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onAdd(app); onClose(); }}
+                style={({ pressed }) => [styles.availableAppRow, pressed && { opacity: 0.75 }]}
+              >
+                <View style={[styles.appCardIcon, { backgroundColor: app.color + '22' }]}>
+                  <Ionicons name={app.icon as any} size={22} color={app.color} />
+                </View>
+                <Text style={styles.appCardName}>{app.name}</Text>
+                <View style={styles.addIconWrap}>
+                  <Feather name="plus" size={18} color={Colors.accent} />
+                </View>
+              </Pressable>
+            ))}
+            <View style={{ height: 20 }} />
+          </ScrollView>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const [apps, setApps] = useState<AppConfig[]>(DEFAULT_APPS);
+  const [showAddModal, setShowAddModal] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   useEffect(() => {
@@ -157,37 +242,64 @@ export default function SettingsScreen() {
     save(apps.map(a => a.id === id ? { ...a, [field]: val } : a));
   };
 
+  const deleteApp = (id: string) => {
+    save(apps.filter(a => a.id !== id));
+  };
+
+  const addApp = (base: Omit<AppConfig, 'enabled' | 'expanded' | 'lockDuration' | 'unlockGoals' | 'unlockTimeLimit'>) => {
+    const newApp: AppConfig = { ...base, enabled: true, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 60 };
+    save([...apps, newApp]);
+  };
+
   const enabledCount = apps.filter(a => a.enabled).length;
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ paddingTop: topPad + 8, paddingBottom: 110 }}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Managed Apps</Text>
-        <View style={styles.countBadge}>
-          <Text style={styles.countText}>{enabledCount} active</Text>
+    <>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingTop: topPad + 8, paddingBottom: 120 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageTitle}>Managed Apps</Text>
+          <View style={styles.countBadge}>
+            <Text style={styles.countText}>{enabledCount} active</Text>
+          </View>
         </View>
-      </View>
 
-      <Text style={styles.pageDesc}>
-        Toggle apps to block them when limits are hit. Expand each app to configure lock duration, unlock goals, and time limits.
-      </Text>
+        <Text style={styles.pageDesc}>
+          Toggle apps to block them when limits are hit. Expand to configure lock duration, unlock goals, and time limits.
+        </Text>
 
-      <View style={styles.appList}>
-        {apps.map(app => (
-          <AppCard
-            key={app.id}
-            app={app}
-            onToggle={() => toggle(app.id)}
-            onExpand={() => expand(app.id)}
-            onUpdate={(field, val) => update(app.id, field, val)}
-          />
-        ))}
-      </View>
-    </ScrollView>
+        <View style={styles.appList}>
+          {apps.map(app => (
+            <AppCard
+              key={app.id}
+              app={app}
+              onToggle={() => toggle(app.id)}
+              onExpand={() => expand(app.id)}
+              onUpdate={(field, val) => update(app.id, field, val)}
+              onDelete={() => deleteApp(app.id)}
+            />
+          ))}
+        </View>
+
+        <Pressable
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowAddModal(true); }}
+          style={({ pressed }) => [styles.addAppBtn, pressed && { opacity: 0.8 }]}
+        >
+          <Feather name="plus-circle" size={20} color={Colors.accent} />
+          <Text style={styles.addAppBtnText}>Add an App</Text>
+        </Pressable>
+      </ScrollView>
+
+      <AddAppModal
+        visible={showAddModal}
+        existingIds={apps.map(a => a.id)}
+        onAdd={addApp}
+        onClose={() => setShowAddModal(false)}
+      />
+    </>
   );
 }
 
@@ -243,7 +355,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
     flex: 1,
   },
-  toggleWrap: { marginRight: 6 },
+  toggleWrap: { marginRight: 4 },
   toggle: {
     width: 44,
     height: 26,
@@ -262,6 +374,46 @@ const styles = StyleSheet.create({
   toggleThumbOn: {
     backgroundColor: Colors.background,
     alignSelf: 'flex-end',
+  },
+  cardRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  trashBtn: {
+    padding: 2,
+  },
+  deleteConfirmRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cancelDeleteBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: 8,
+  },
+  cancelDeleteText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  confirmDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: Colors.dangerMuted,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.danger + '44',
+  },
+  confirmDeleteText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.danger,
   },
   expansionDivider: { height: 1, backgroundColor: Colors.borderSubtle },
   expansionPanel: { paddingBottom: 4 },
@@ -293,5 +445,93 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: Colors.borderSubtle,
     marginHorizontal: 16,
+  },
+  addAppBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 16,
+    paddingVertical: 16,
+    backgroundColor: Colors.accentMuted,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.accent + '44',
+    borderStyle: 'dashed',
+  },
+  addAppBtnText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    color: Colors.accent,
+  },
+
+  // Add App Modal
+  modalContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    paddingHorizontal: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  modalTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 22,
+    color: Colors.text,
+  },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalSubtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  availableAppRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+  },
+  addIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: Colors.accentMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  emptyTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 20,
+    color: Colors.text,
+  },
+  emptyDesc: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
 });
