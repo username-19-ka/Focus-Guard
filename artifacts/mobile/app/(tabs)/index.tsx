@@ -18,6 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useDashboardStore, MappedApp } from '@/store/dashboardStore';
+import { useBankedMinutes } from '@/store/bankedMinutesStore';
+import { useActiveChallenge } from '@/store/activeChallengeStore';
 import { openUsageAccessSettings } from '@/lib/UsageStatsService';
 import FocusRing from '@/components/FocusRing';
 import WeeklyBarChart from '@/components/WeeklyBarChart';
@@ -62,6 +64,55 @@ function ImpactCards() {
           <Text style={styles.streakValue}>{streakDays}</Text>
           <Text style={styles.streakLabel}>day streak</Text>
         </View>
+      </View>
+    </View>
+  );
+}
+
+function BankedTimeCard() {
+  const { bankedMinutes, sessionUntil, loadFromStorage } = useBankedMinutes();
+  const activeChallenge = useActiveChallenge(s => s.challenge);
+  const [remainSec, setRemainSec] = useState(0);
+
+  useEffect(() => { loadFromStorage(); }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (sessionUntil) setRemainSec(Math.max(0, Math.floor((sessionUntil - Date.now()) / 1000)));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [sessionUntil]);
+
+  const hasSession = !!sessionUntil && Date.now() < sessionUntil;
+  const floored = Math.floor(bankedMinutes);
+  const h = Math.floor(floored / 60);
+  const m = floored % 60;
+  const bankedLabel = h > 0 ? `${h}h ${m}m` : `${floored}m`;
+  const remainMin = Math.floor(remainSec / 60);
+  const remainS = remainSec % 60;
+
+  return (
+    <View style={styles.bankedCard}>
+      <View style={styles.bankedLeft}>
+        <View style={styles.bankedIconWrap}>
+          <Feather name="zap" size={22} color={floored > 0 ? Colors.accent : Colors.textTertiary} />
+        </View>
+        <View>
+          <Text style={styles.bankedLabel}>Challenge Minutes</Text>
+          {activeChallenge
+            ? <Text style={styles.bankedSub}>{activeChallenge.challengeLabel} active</Text>
+            : <Text style={styles.bankedSub}>No active challenge</Text>}
+        </View>
+      </View>
+      <View style={styles.bankedRight}>
+        <Text style={[styles.bankedValue, floored === 0 && { color: Colors.textTertiary }]}>
+          {bankedLabel}
+        </Text>
+        {hasSession && (
+          <Text style={styles.bankedSession}>
+            Access: {remainMin}:{remainS.toString().padStart(2, '0')}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -209,6 +260,8 @@ export default function DashboardScreen() {
         <Text style={styles.sectionTitle}>Today's Impact</Text>
       </View>
       <ImpactCards />
+
+      <BankedTimeCard />
 
       <WeeklySection />
 
@@ -519,4 +572,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.background,
   },
+  bankedCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.accent + '33',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  bankedLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bankedIconWrap: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: Colors.accentMuted,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bankedLabel: { fontFamily: 'Inter_700Bold', fontSize: 14, color: Colors.text },
+  bankedSub: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textSecondary, marginTop: 2 },
+  bankedRight: { alignItems: 'flex-end' },
+  bankedValue: { fontFamily: 'Inter_700Bold', fontSize: 24, color: Colors.accent },
+  bankedSession: { fontFamily: 'Inter_600SemiBold', fontSize: 11, color: Colors.accent + 'BB', marginTop: 2 },
 });

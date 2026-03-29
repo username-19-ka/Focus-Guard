@@ -14,6 +14,7 @@ import React from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useActiveChallenge } from '@/store/activeChallengeStore';
 import Colors from '@/constants/colors';
 
 const IS_IOS = Platform.OS === 'ios';
@@ -93,6 +94,7 @@ function TabIcon({
 
 function ClassicTabLayout() {
   const insets = useSafeAreaInsets();
+  const isChallengeActive = useActiveChallenge(s => !!s.challenge);
 
   return (
     <Tabs
@@ -130,8 +132,21 @@ function ClassicTabLayout() {
         name="settings"
         options={{
           title: 'Apps',
+          tabBarActiveTintColor: isChallengeActive ? Colors.textTertiary : Colors.accent,
+          tabBarInactiveTintColor: isChallengeActive ? Colors.textTertiary + '55' : Colors.textTertiary,
           tabBarIcon: ({ color }) => (
-            <TabIcon sfName="slider.horizontal.3" featherName="sliders" color={color} />
+            <View>
+              <TabIcon
+                sfName="slider.horizontal.3"
+                featherName="sliders"
+                color={isChallengeActive ? Colors.textTertiary + '55' : color}
+              />
+              {isChallengeActive && (
+                <View style={styles.tabLockBadge}>
+                  <Feather name="lock" size={7} color={Colors.textTertiary} />
+                </View>
+              )}
+            </View>
           ),
         }}
       />
@@ -156,6 +171,22 @@ function ClassicTabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabLockBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -4,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: Colors.tabBar,
+    borderWidth: 1,
+    borderColor: Colors.textTertiary + '44',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
 
 // ─── Root export ───────────────────────────────────────────────────────────────
 
