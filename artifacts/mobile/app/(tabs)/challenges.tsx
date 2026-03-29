@@ -166,7 +166,7 @@ export default function ChallengesScreen() {
   const [guideStep, setGuideStep] = useState(0);
   const [reps, setReps] = useState(0);
   const [phaseText, setPhaseText] = useState('');
-  const [conflictDialog, setConflictDialog] = useState<{ exerciseId: ExerciseId; exerciseLabel: string } | null>(null);
+  const [conflictDialog, setConflictDialog] = useState<{ exerciseId: ExerciseId; exerciseLabel: string; step: 'choice' | 'difficulty'; selectedDiff: DifficultyKey } | null>(null);
 
   useEffect(() => { loadChallenge(); }, []);
 
@@ -180,7 +180,7 @@ export default function ChallengesScreen() {
     if (activeChallenge && c.id !== 'buildOwn') {
       const hasExercise = activeChallenge.exercises.some(e => e.type === c.id);
       if (!hasExercise) {
-        setConflictDialog({ exerciseId: c.id, exerciseLabel: c.label });
+        setConflictDialog({ exerciseId: c.id, exerciseLabel: c.label, step: 'choice', selectedDiff: 'medium' });
         return;
       }
     }
@@ -198,10 +198,30 @@ export default function ChallengesScreen() {
 
   const handleSaveDuration = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setModal(null);
-    setGuideStep(0);
+    if (!selected) { setModal(null); return; }
+
+    const { repsPerUnit: rpu, minsPerUnit: mpu } = getDiffValues(difficulty, customReps, customMins);
+    const exercises: ExerciseStats[] = selected.id === 'buildOwn'
+      ? BUILD_OWN_EXERCISES
+          .filter(ex => byoEnabled[ex.id])
+          .map(ex => ({ type: ex.id as 'pushup' | 'squat', difficulty, repsPerUnit: rpu, minsPerUnit: mpu, totalReps: 0 }))
+      : [{ type: selected.id as 'pushup' | 'squat', difficulty, repsPerUnit: rpu, minsPerUnit: mpu, totalReps: 0 }];
+
+    const c = buildChallenge({
+      primaryType: selected.id as ChallengeType,
+      challengeLabel: selected.label,
+      challengeColor: selected.color,
+      exercises,
+      durationType: durType,
+      durationValue: durValue,
+    });
+    setActiveChallenge(c);
+
+    const firstExercise = exercises[0]?.type ?? 'pushup';
+    setCurrentExerciseType(firstExercise);
     setReps(0);
-    setPhase('guideWelcome');
+    setModal(null);
+    setPhase('session');
   };
 
   const handleSaveByo = () => {
@@ -284,13 +304,13 @@ export default function ChallengesScreen() {
   const handleConflictAddToCurrent = async () => {
     if (!conflictDialog || !activeChallenge) return;
     const id = conflictDialog.exerciseId as 'pushup' | 'squat';
-    // Inherit params from the existing challenge's first exercise
-    const refExercise = activeChallenge.exercises[0];
+    const chosenDiff = conflictDialog.selectedDiff;
+    const { repsPerUnit: rpu, minsPerUnit: mpu } = getDiffValues(chosenDiff, customReps, customMins);
     const entry: ExerciseStats = {
       type: id,
-      difficulty: refExercise?.difficulty ?? 'medium',
-      repsPerUnit: refExercise?.repsPerUnit ?? 1,
-      minsPerUnit: refExercise?.minsPerUnit ?? 1,
+      difficulty: chosenDiff,
+      repsPerUnit: rpu,
+      minsPerUnit: mpu,
       totalReps: 0,
     };
     // Merge into a new "Build Your Own" challenge keeping the same duration/start
@@ -373,24 +393,63 @@ export default function ChallengesScreen() {
 
       {/* Conflict dialog */}
       {conflictDialog && (
-        <View style={styles.dialogOverlay}>
-          <View style={styles.dialogBox}>
-            <Text style={styles.dialogTitle}>
-              Add {conflictDialog.exerciseId === 'squat' ? 'Squats' : 'Pushups'}?
-            </Text>
-            <Text style={styles.dialogBody}>
-              Would you like to add {conflictDialog.exerciseId === 'squat' ? 'squats' : 'pushups'} to your current challenge or start a new one?
-            </Text>
-            <View style={styles.dialogButtons}>
-              <Pressable onPress={handleConflictStartNew} style={styles.dialogBtnOutline}>
-                <Text style={styles.dialogBtnOutlineText}>Start New</Text>
-              </Pressable>
-              <Pressable onPress={handleConflictAddToCurrent} style={styles.dialogBtnBlue}>
-                <Text style={styles.dialogBtnBlueText}>Add to Curr...</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+        <Pressable style={styles.dialogOverlay} onPress={() => setConflictDialog(null)}>
+          <Pressable style={styles.dialogBox} onPress={() => {}}>
+            {conflictDialog.step === 'choice' ? (
+              <>
+                <Text style={styles.dialogTitle}>
+                  Add {conflictDialog.exerciseId === 'squat' ? 'Squats' : 'Pushups'}?
+                </Text>
+                <Text style={styles.dialogBody}>
+                  Would you like to add {conflictDialog.exerciseId === 'squat' ? 'squats' : 'pushups'} to your current challenge or start a new one?
+                </Text>
+                <View style={styles.dialogButtons}>
+                  <Pressable onPress={handleConflictStartNew} style={styles.dialogBtnOutline}>
+                    <Text style={styles.dialogBtnOutlineText}>Start New</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setConflictDialog(prev => prev ? { ...prev, step: 'difficulty' } : null)}
+                    style={styles.dialogBtnBlue}
+                  >
+                    <Text style={styles.dialogBtnBlueText}>Add to Curr...</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.dialogTitle}>Choose Difficulty</Text>
+                <Text style={styles.dialogBody}>
+                  How hard should {conflictDialog.exerciseId === 'squat' ? 'squats' : 'pushups'} be?
+                </Text>
+                <View style={styles.diffPickerGrid}>
+                  {DIFFICULTIES.filter(d => d.key !== 'custom').map(d => (
+                    <Pressable
+                      key={d.key}
+                      onPress={() => setConflictDialog(prev => prev ? { ...prev, selectedDiff: d.key } : null)}
+                      style={[
+                        styles.diffPickerBtn,
+                        conflictDialog.selectedDiff === d.key && styles.diffPickerBtnActive,
+                      ]}
+                    >
+                      <Text style={[
+                        styles.diffPickerBtnText,
+                        conflictDialog.selectedDiff === d.key && styles.diffPickerBtnTextActive,
+                      ]}>{d.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={styles.dialogButtons}>
+                  <Pressable onPress={() => setConflictDialog(prev => prev ? { ...prev, step: 'choice' } : null)} style={styles.dialogBtnOutline}>
+                    <Text style={styles.dialogBtnOutlineText}>Back</Text>
+                  </Pressable>
+                  <Pressable onPress={handleConflictAddToCurrent} style={styles.dialogBtnBlue}>
+                    <Text style={styles.dialogBtnBlueText}>Add Exercise</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
       )}
     </View>
   );
@@ -440,7 +499,7 @@ function MyChallengeCard({ onViewDetails }: { onViewDetails: () => void }) {
               </View>
             )}
             <View style={styles.myCardStat}>
-              <Text style={[styles.myCardStatVal, { color: Colors.success }]}>{challenge.totalMinutesBanked}</Text>
+              <Text style={[styles.myCardStatVal, { color: challenge.totalMinutesBanked > 0 ? Colors.success : Colors.textTertiary }]}>{challenge.totalMinutesBanked}</Text>
               <Text style={styles.myCardStatLabel}>Banked Mins</Text>
             </View>
           </View>
@@ -1185,6 +1244,11 @@ const styles = StyleSheet.create({
   dialogBtnOutlineText: { fontFamily: 'Inter_600SemiBold', fontSize: 15, color: Colors.text },
   dialogBtnBlue: { flex: 1, backgroundColor: BLUE, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   dialogBtnBlueText: { fontFamily: 'Inter_700Bold', fontSize: 15, color: '#fff' },
+  diffPickerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  diffPickerBtn: { flexBasis: '47%', flexGrow: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.surfaceElevated, alignItems: 'center' },
+  diffPickerBtnActive: { borderColor: BLUE, backgroundColor: BLUE + '22' },
+  diffPickerBtnText: { fontFamily: 'Inter_500Medium', fontSize: 14, color: Colors.textSecondary },
+  diffPickerBtnTextActive: { color: BLUE, fontFamily: 'Inter_700Bold' },
 
   // Sheet
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
