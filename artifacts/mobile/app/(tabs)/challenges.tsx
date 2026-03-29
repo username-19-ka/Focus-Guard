@@ -140,6 +140,7 @@ export default function ChallengesScreen() {
   const [durType, setDurType] = useState<DurType>('days');
   const [durValue, setDurValue] = useState(5);
   const [byoEnabled, setByoEnabled] = useState<Record<ExerciseId, boolean>>({ pushup: true, squat: true, buildOwn: false });
+  const [byoDifficulty, setByoDifficulty] = useState<Record<string, DifficultyKey>>({ pushup: 'medium', squat: 'medium' });
   const [guideStep, setGuideStep] = useState(0);
   const [reps, setReps] = useState(0);
   const [phaseText, setPhaseText] = useState('');
@@ -177,12 +178,18 @@ export default function ChallengesScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (!selected) { setModal(null); return; }
 
-    const { repsPerUnit: rpu, minsPerUnit: mpu } = getDiffValues(difficulty, customReps, customMins);
     const exercises: ExerciseStats[] = selected.id === 'buildOwn'
       ? BUILD_OWN_EXERCISES
           .filter(ex => byoEnabled[ex.id])
-          .map(ex => ({ type: ex.id as 'pushup' | 'squat', difficulty, repsPerUnit: rpu, minsPerUnit: mpu, totalReps: 0 }))
-      : [{ type: selected.id as 'pushup' | 'squat', difficulty, repsPerUnit: rpu, minsPerUnit: mpu, totalReps: 0 }];
+          .map(ex => {
+            const exDiff = byoDifficulty[ex.id] ?? 'medium';
+            const { repsPerUnit: rpu, minsPerUnit: mpu } = getDiffValues(exDiff, customReps, customMins);
+            return { type: ex.id as 'pushup' | 'squat', difficulty: exDiff, repsPerUnit: rpu, minsPerUnit: mpu, totalReps: 0 };
+          })
+      : (() => {
+          const { repsPerUnit: rpu, minsPerUnit: mpu } = getDiffValues(difficulty, customReps, customMins);
+          return [{ type: selected.id as 'pushup' | 'squat', difficulty, repsPerUnit: rpu, minsPerUnit: mpu, totalReps: 0 }];
+        })();
 
     const c = buildChallenge({
       primaryType: selected.id as ChallengeType,
@@ -340,7 +347,9 @@ export default function ChallengesScreen() {
         onDifficultyChange={setDifficulty} onCustomRepsChange={setCustomReps} onCustomMinsChange={setCustomMins}
         onSave={handleSaveDetail} onClose={closeModal} />
       <BuildYourOwnSheet visible={modal === 'buildYourOwn'} enabled={byoEnabled}
+        difficulty={byoDifficulty}
         onToggle={(id) => setByoEnabled(prev => ({ ...prev, [id]: !prev[id] }))}
+        onDifficultyChange={(id, d) => setByoDifficulty(prev => ({ ...prev, [id]: d }))}
         onSave={handleSaveByo} onClose={closeModal} />
       <DurationSheet visible={modal === 'duration'} challenge={selected}
         durType={durType} durValue={durValue}
@@ -794,9 +803,16 @@ function DetailSheet({ visible, challenge, difficulty, customReps, customMins, o
 
 // ─── Build Your Own sheet ─────────────────────────────────────────────────────
 
-function BuildYourOwnSheet({ visible, enabled, onToggle, onSave, onClose }: {
-  visible: boolean; enabled: Record<ExerciseId, boolean>;
-  onToggle: (id: ExerciseId) => void; onSave: () => void; onClose: () => void;
+const BYO_DIFFS: DifficultyDef[] = DIFFICULTIES.filter(d => d.key !== 'custom');
+
+function BuildYourOwnSheet({ visible, enabled, difficulty, onToggle, onDifficultyChange, onSave, onClose }: {
+  visible: boolean;
+  enabled: Record<ExerciseId, boolean>;
+  difficulty: Record<string, DifficultyKey>;
+  onToggle: (id: ExerciseId) => void;
+  onDifficultyChange: (id: string, d: DifficultyKey) => void;
+  onSave: () => void;
+  onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const byo = CHALLENGES.find(c => c.id === 'buildOwn')!;
@@ -807,20 +823,36 @@ function BuildYourOwnSheet({ visible, enabled, onToggle, onSave, onClose }: {
         <SheetHeader challenge={byo} onClose={onClose} />
         <View style={styles.sheetBody}>
           {BUILD_OWN_EXERCISES.map(ex => (
-            <Pressable key={ex.id}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggle(ex.id); }}
-              style={styles.byoRow}>
-              <View style={[styles.byoRowIcon, { backgroundColor: ex.color + '22' }]}>
-                <ChallengeIcon id={ex.id} color={ex.color} size={18} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.byoRowLabel}>{ex.label}</Text>
-                <Text style={styles.byoRowSub}>{ex.sub}</Text>
-              </View>
-              <View style={[styles.toggle, enabled[ex.id] && styles.toggleOn]}>
-                <View style={[styles.toggleThumb, enabled[ex.id] && styles.toggleThumbOn]} />
-              </View>
-            </Pressable>
+            <View key={ex.id} style={styles.byoCard}>
+              <Pressable
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggle(ex.id); }}
+                style={styles.byoRow}>
+                <View style={[styles.byoRowIcon, { backgroundColor: ex.color + '22' }]}>
+                  <ChallengeIcon id={ex.id} color={ex.color} size={18} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.byoRowLabel}>{ex.label}</Text>
+                  <Text style={styles.byoRowSub}>{ex.sub}</Text>
+                </View>
+                <View style={[styles.toggle, enabled[ex.id] && styles.toggleOn]}>
+                  <View style={[styles.toggleThumb, enabled[ex.id] && styles.toggleThumbOn]} />
+                </View>
+              </Pressable>
+              {enabled[ex.id] && (
+                <View style={styles.byoDiffRow}>
+                  {BYO_DIFFS.map(d => {
+                    const active = (difficulty[ex.id] ?? 'medium') === d.key;
+                    return (
+                      <Pressable key={d.key}
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onDifficultyChange(ex.id, d.key); }}
+                        style={[styles.byoDiffPill, active && { backgroundColor: ex.color }]}>
+                        <Text style={[styles.byoDiffPillText, active && { color: '#fff' }]}>{d.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
           ))}
           <Pressable onPress={onSave} style={[styles.blueBtn, { marginTop: 8 }]}>
             <Text style={styles.blueBtnText}>Save</Text>
@@ -1216,10 +1248,14 @@ const styles = StyleSheet.create({
   durPickerValue: { fontFamily: 'Inter_700Bold', fontSize: 52, color: Colors.text },
   endDateText: { fontFamily: 'Inter_500Medium', fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
 
-  byoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.border, padding: 14 },
+  byoCard: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
+  byoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   byoRowIcon: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   byoRowLabel: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: Colors.text },
   byoRowSub: { fontFamily: 'Inter_400Regular', fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
+  byoDiffRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 14, paddingBottom: 12 },
+  byoDiffPill: { flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.border },
+  byoDiffPillText: { fontFamily: 'Inter_600SemiBold', fontSize: 11, color: Colors.textSecondary },
   toggle: { width: 44, height: 26, borderRadius: 13, backgroundColor: Colors.border, padding: 3, justifyContent: 'center' },
   toggleOn: { backgroundColor: BLUE },
   toggleThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: Colors.textSecondary },
