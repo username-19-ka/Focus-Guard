@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Modal,
   Platform,
   Pressable,
@@ -10,7 +11,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import Colors from '@/constants/colors';
@@ -91,11 +91,20 @@ function AppCard({ app, onToggle, onExpand, onUpdate, onDelete }: {
   onDelete: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const chevronRotation = useSharedValue(app.expanded ? 180 : 0);
-  chevronRotation.value = withSpring(app.expanded ? 180 : 0, { damping: 18 });
-  const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${chevronRotation.value}deg` }],
-  }));
+  const chevronRotation = useRef(new Animated.Value(app.expanded ? 180 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(chevronRotation, {
+      toValue: app.expanded ? 180 : 0,
+      useNativeDriver: true,
+      damping: 18,
+      stiffness: 200,
+    }).start();
+  }, [app.expanded]);
+
+  const chevronStyle = {
+    transform: [{ rotate: chevronRotation.interpolate({ inputRange: [0, 180], outputRange: ['0deg', '180deg'] }) }],
+  };
 
   return (
     <View style={styles.appCard}>

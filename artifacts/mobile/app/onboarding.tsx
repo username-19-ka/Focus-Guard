@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Dimensions,
   Platform,
   Pressable,
@@ -11,11 +12,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import {
@@ -118,13 +114,14 @@ function PermissionRow({
   buttonLabel,
   onPress,
 }: PermissionRowProps) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const scale = useRef(new Animated.Value(1)).current;
+  const animStyle = { transform: [{ scale }] };
 
   const handlePress = () => {
-    scale.value = withSpring(0.95, { damping: 15 }, () => {
-      scale.value = withSpring(1, { damping: 15 });
-    });
+    Animated.sequence([
+      Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, damping: 15 }),
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 15 }),
+    ]).start();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
   };
