@@ -32,6 +32,7 @@ import {
   formatShortDate,
   difficultyLabel,
   difficultyDesc,
+  type ActiveChallenge,
   type ChallengeType,
   type DifficultyKey,
   type DurType,
@@ -41,7 +42,7 @@ import {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ExerciseId = 'pushup' | 'squat' | 'buildOwn';
-type Phase = 'list' | 'guideWelcome' | 'guidePosition' | 'guideSpending' | 'guideBanked' | 'countdown' | 'session' | 'complete';
+type Phase = 'list' | 'guideWelcome' | 'guidePosition' | 'guideSpending' | 'guideBanked' | 'session' | 'complete';
 type ActiveModal = null | 'detail' | 'buildYourOwn' | 'duration' | 'challengeDetails';
 
 type ChallengeConfig = { id: ExerciseId; label: string; sub: string; color: string };
@@ -170,7 +171,6 @@ export default function ChallengesScreen() {
   useEffect(() => { loadChallenge(); }, []);
 
   const { repsPerUnit, minsPerUnit } = getDiffValues(difficulty, customReps, customMins);
-  const target = currentExerciseType === 'squat' ? 15 : 10;
   const earnedMinutes = Math.floor(reps / repsPerUnit) * minsPerUnit;
 
   const handleStart = (c: ChallengeConfig) => {
@@ -211,16 +211,10 @@ export default function ChallengesScreen() {
 
   const handleRep = useCallback(() => {
     setReps(prev => {
-      const next = prev + 1;
-      if (next >= target) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setTimeout(() => setPhase('complete'), 400);
-      } else {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      return next;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return prev + 1;
     });
-  }, [target]);
+  }, []);
 
   const handleComplete = async () => {
     if (earnedMinutes > 0) await addMinutes(earnedMinutes);
@@ -233,6 +227,18 @@ export default function ChallengesScreen() {
     setReps(0);
     setModal(null);
   };
+
+  const handleSessionDone = useCallback(() => {
+    if (reps > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPhase('complete');
+    } else {
+      setPhase('list');
+      setSelected(null);
+      setReps(0);
+      setModal(null);
+    }
+  }, [reps]);
 
   const handleGuideComplete = () => {
     if (!selected) return;
@@ -256,7 +262,7 @@ export default function ChallengesScreen() {
 
     const firstExercise = exercises[0]?.type ?? 'pushup';
     setCurrentExerciseType(firstExercise);
-    setPhase('countdown');
+    setPhase('session');
   };
 
   const handleEarnMinutes = (exerciseType: 'pushup' | 'squat') => {
@@ -265,7 +271,7 @@ export default function ChallengesScreen() {
     setSelected(cfg);
     setReps(0);
     setModal(null);
-    setPhase('countdown');
+    setPhase('session');
   };
 
   const handleUseMinutes = async () => {
@@ -278,8 +284,26 @@ export default function ChallengesScreen() {
   const handleConflictAddToCurrent = async () => {
     if (!conflictDialog || !activeChallenge) return;
     const id = conflictDialog.exerciseId as 'pushup' | 'squat';
-    const entry: ExerciseStats = { type: id, difficulty: 'medium', repsPerUnit: 1, minsPerUnit: 1, totalReps: 0 };
-    await addExercise(entry);
+    // Inherit params from the existing challenge's first exercise
+    const refExercise = activeChallenge.exercises[0];
+    const entry: ExerciseStats = {
+      type: id,
+      difficulty: refExercise?.difficulty ?? 'medium',
+      repsPerUnit: refExercise?.repsPerUnit ?? 1,
+      minsPerUnit: refExercise?.minsPerUnit ?? 1,
+      totalReps: 0,
+    };
+    // Merge into a new "Build Your Own" challenge keeping the same duration/start
+    const merged: ActiveChallenge = {
+      ...activeChallenge,
+      primaryType: 'buildOwn',
+      challengeLabel: 'Build Your Own',
+      challengeColor: '#FF6D00',
+      exercises: activeChallenge.exercises.some(e => e.type === id)
+        ? activeChallenge.exercises
+        : [...activeChallenge.exercises, entry],
+    };
+    await setActiveChallenge(merged);
     setConflictDialog(null);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -322,13 +346,10 @@ export default function ChallengesScreen() {
       {phase === 'guideBanked' && (
         <GuideBanked guideStep={guideStep} onNext={handleGuideComplete} onClose={handleReset} />
       )}
-      {phase === 'countdown' && selected && (
-        <CountdownView challenge={selected} onComplete={() => setPhase('session')} onCancel={handleReset} />
-      )}
       {phase === 'session' && selected && (
-        <SessionView challenge={selected} reps={reps} target={target}
+        <SessionView challenge={selected} reps={reps}
           repsPerUnit={repsPerUnit} minsPerUnit={minsPerUnit} phaseText={phaseText}
-          onRep={handleRep} onPhaseChange={setPhaseText} onGiveUp={handleReset} />
+          onRep={handleRep} onPhaseChange={setPhaseText} onDone={handleSessionDone} />
       )}
       {phase === 'complete' && selected && (
         <CompleteView challenge={selected} reps={reps} earnedMinutes={earnedMinutes}
@@ -982,79 +1003,27 @@ function GuideBanked({ guideStep, onNext, onClose }: { guideStep: number; onNext
   );
 }
 
-// ─── Countdown ────────────────────────────────────────────────────────────────
-
-function CountdownView({ challenge, onComplete, onCancel }: { challenge: ChallengeConfig; onComplete: () => void; onCancel: () => void }) {
-  const [count, setCount] = useState(3);
-  const [showGo, setShowGo] = useState(false);
-  const scaleAnim = useRef(new Animated.Value(0)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const pulse = (n: number) => {
-      setCount(n);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      Animated.parallel([
-        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, damping: 8, stiffness: 200 }),
-        Animated.timing(opacityAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
-      ]).start(() => {
-        setTimeout(() => {
-          Animated.parallel([
-            Animated.timing(scaleAnim, { toValue: 0.4, duration: 250, useNativeDriver: true }),
-            Animated.timing(opacityAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-          ]).start(() => {
-            if (n > 1) { pulse(n - 1); }
-            else {
-              setShowGo(true);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, damping: 6 }).start();
-              Animated.timing(opacityAnim, { toValue: 1, duration: 80, useNativeDriver: true }).start();
-              setTimeout(onComplete, 900);
-            }
-          });
-        }, 700);
-      });
-    };
-    pulse(3);
-  }, []);
-  return (
-    <View style={styles.countdownContainer}>
-      <Pressable onPress={onCancel} style={styles.guideCloseBtn} hitSlop={8}>
-        <Feather name="x" size={18} color={Colors.textSecondary} />
-      </Pressable>
-      <Text style={[styles.countdownChallengeLabel, { color: challenge.color }]}>{challenge.label}</Text>
-      <View style={[styles.countdownRing, { borderColor: challenge.color + '55' }]}>
-        <Animated.Text style={[
-          showGo ? styles.countdownGo : styles.countdownNumber,
-          showGo && { color: challenge.color },
-          { transform: [{ scale: scaleAnim }], opacity: opacityAnim },
-        ]}>
-          {showGo ? 'GO!' : count}
-        </Animated.Text>
-      </View>
-      <Text style={styles.countdownHint}>{showGo ? 'Starting...' : 'Get into position!'}</Text>
-    </View>
-  );
-}
-
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 const RING_R = 52;
 const RING_C = 2 * Math.PI * RING_R;
 
-function SessionView({ challenge, reps, target, repsPerUnit, minsPerUnit, phaseText, onRep, onPhaseChange, onGiveUp }: {
-  challenge: ChallengeConfig; reps: number; target: number;
+function SessionView({ challenge, reps, repsPerUnit, minsPerUnit, phaseText, onRep, onPhaseChange, onDone }: {
+  challenge: ChallengeConfig; reps: number;
   repsPerUnit: number; minsPerUnit: number; phaseText: string;
-  onRep: () => void; onPhaseChange: (s: string) => void; onGiveUp: () => void;
+  onRep: () => void; onPhaseChange: (s: string) => void; onDone: () => void;
 }) {
-  const progress = Math.min(reps / target, 1);
-  const strokeOffset = RING_C * (1 - progress);
+  // Ring shows progress toward next earned minute
+  const repsInCycle = repsPerUnit > 0 ? reps % repsPerUnit : 0;
+  const cycleProgress = repsPerUnit > 0 ? repsInCycle / repsPerUnit : 0;
+  const strokeOffset = RING_C * (1 - cycleProgress);
   const earned = Math.floor(reps / repsPerUnit) * minsPerUnit;
   return (
     <View style={styles.sessionContainer}>
       <View style={styles.sessionTopBar}>
-        <Pressable onPress={onGiveUp} style={styles.giveUpBtn}>
-          <Feather name="x" size={14} color={Colors.textTertiary} />
-          <Text style={styles.giveUpText}>Give Up</Text>
+        <Pressable onPress={onDone} style={styles.giveUpBtn}>
+          <Feather name="check" size={14} color={Colors.accent} />
+          <Text style={[styles.giveUpText, { color: Colors.accent }]}>Done</Text>
         </Pressable>
         <Text style={[styles.sessionLabel, { color: challenge.color }]}>{challenge.label}</Text>
       </View>
@@ -1067,7 +1036,7 @@ function SessionView({ challenge, reps, target, repsPerUnit, minsPerUnit, phaseT
         </Svg>
         <View style={styles.repOverlay}>
           <Text style={styles.repCount}>{reps}</Text>
-          <Text style={styles.repTarget}>/ {target}</Text>
+          <Text style={styles.repTarget}>reps</Text>
         </View>
       </View>
       {earned > 0 && (
@@ -1283,14 +1252,6 @@ const styles = StyleSheet.create({
   barChartContainer: { width: '100%', height: 140, borderRadius: 12, backgroundColor: Colors.surface, overflow: 'hidden', padding: 12, gap: 0 },
   barChartRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   barChartLabel: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textTertiary, width: 28, textAlign: 'right' },
-
-  // Countdown
-  countdownContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 24, paddingHorizontal: 32 },
-  countdownChallengeLabel: { fontFamily: 'Inter_700Bold', fontSize: 18 },
-  countdownRing: { width: 160, height: 160, borderRadius: 80, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surface },
-  countdownNumber: { fontFamily: 'Inter_700Bold', fontSize: 80, color: Colors.text },
-  countdownGo: { fontFamily: 'Inter_700Bold', fontSize: 52 },
-  countdownHint: { fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textTertiary },
 
   // Session
   sessionContainer: { flex: 1, paddingHorizontal: 16 },
