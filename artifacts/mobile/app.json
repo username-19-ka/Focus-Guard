@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "FocusGuard",
-    "slug": "mobile",
+    "slug": "focusguard-app",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -28,7 +28,8 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.WAKE_LOCK",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -61,9 +62,13 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
       "eas": {
-        "projectId": "0166ad07-37d7-4a42-a6e0-36e28497037d"
+        "projectId": "c7a9271a-c103-416e-82a3-fec63abe6441"
       }
-    }
+    },
+    "owner": "karimaa"
   }
 }
