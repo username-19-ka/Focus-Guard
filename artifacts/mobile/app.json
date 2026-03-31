@@ -36,6 +36,7 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
+      "expo-dev-client",
       [
         "expo-router",
         {
@@ -62,9 +63,6 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {
-        "origin": "https://replit.com/"
-      },
       "eas": {
         "projectId": "c7a9271a-c103-416e-82a3-fec63abe6441"
       }
