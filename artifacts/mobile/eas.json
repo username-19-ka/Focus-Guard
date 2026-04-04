@@ -11,6 +11,7 @@
         "buildType": "apk"
       },
       "env": {
+        "NODE_ENV": "production",
         "EXPO_ROUTER_APP_ROOT": "app",
         "EXPO_PUBLIC_SUPABASE_URL": "https://pmufygdfeduudfwyilej.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtdWZ5Z2RmZWR1dWRmd3lpbGVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTQwMzUsImV4cCI6MjA4OTY5MDAzNX0.Kj_GrrqFf9KOXH37mkzZErq8WrLERb_7_tRXgjeoGs4"
@@ -21,6 +22,7 @@
         "buildType": "app-bundle"
       },
       "env": {
+        "NODE_ENV": "production",
         "EXPO_ROUTER_APP_ROOT": "app",
         "EXPO_PUBLIC_SUPABASE_URL": "https://pmufygdfeduudfwyilej.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtdWZ5Z2RmZWR1dWRmd3lpbGVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTQwMzUsImV4cCI6MjA4OTY5MDAzNX0.Kj_GrrqFf9KOXH37mkzZErq8WrLERb_7_tRXgjeoGs4"
