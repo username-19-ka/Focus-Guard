@@ -61,7 +61,8 @@
     "react-native-web": "^0.21.0",
     "zod": "^3.25.76",
     "zod-validation-error": "^3.4.0",
-    "zustand": "^5.0.12"
+    "zustand": "^5.0.12",
+    "@focusguard/app-tracking": "file:./modules/app-tracking"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
