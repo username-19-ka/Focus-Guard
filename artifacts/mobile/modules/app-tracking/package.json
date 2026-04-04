@@ -1,0 +1,10 @@
+{
+  "name": "@focusguard/app-tracking",
+  "version": "1.0.0",
+  "description": "FocusGuard native module for app tracking, foreground monitoring and system overlay",
+  "main": "index.ts",
+  "private": true,
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  }
+}

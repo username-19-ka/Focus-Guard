@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useActiveChallenge } from '@/store/activeChallengeStore';
 import Colors from '@/constants/colors';
+import AppPickerModal, { type PickableApp } from '@/components/AppPickerModal';
+import { useMonitoredAppsStore } from '@/store/monitoredAppsStore';
 
 type AppConfig = {
   id: string;
@@ -42,23 +43,6 @@ const DEFAULT_APPS: AppConfig[] = [
   { id: 'facebook', name: 'Facebook', icon: 'logo-facebook', color: '#1877F2', enabled: false, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 60 },
 ];
 
-const ALL_POSSIBLE_APPS: Omit<AppConfig, 'enabled' | 'expanded' | 'lockDuration' | 'unlockGoals' | 'unlockTimeLimit'>[] = [
-  { id: 'instagram', name: 'Instagram', icon: 'logo-instagram', color: '#E1306C' },
-  { id: 'tiktok', name: 'TikTok', icon: 'play-circle', color: '#69C9D0' },
-  { id: 'twitter', name: 'Twitter', icon: 'logo-twitter', color: '#1DA1F2' },
-  { id: 'youtube', name: 'YouTube', icon: 'logo-youtube', color: '#FF0000' },
-  { id: 'reddit', name: 'Reddit', icon: 'logo-reddit', color: '#FF4500' },
-  { id: 'facebook', name: 'Facebook', icon: 'logo-facebook', color: '#1877F2' },
-  { id: 'snapchat', name: 'Snapchat', icon: 'camera', color: '#FFCD00' },
-  { id: 'pinterest', name: 'Pinterest', icon: 'bookmark', color: '#E60023' },
-  { id: 'linkedin', name: 'LinkedIn', icon: 'briefcase', color: '#0077B5' },
-  { id: 'discord', name: 'Discord', icon: 'chatbubbles', color: '#5865F2' },
-  { id: 'twitch', name: 'Twitch', icon: 'tv', color: '#9146FF' },
-  { id: 'whatsapp', name: 'WhatsApp', icon: 'chatbubble-ellipses', color: '#25D366' },
-  { id: 'netflix', name: 'Netflix', icon: 'film', color: '#E50914' },
-  { id: 'spotify', name: 'Spotify', icon: 'musical-notes', color: '#1DB954' },
-  { id: 'telegram', name: 'Telegram', icon: 'paper-plane', color: '#2CA5E0' },
-];
 
 function PickerRow({ label, value, options, onChange }: {
   label: string; value: number; options: number[]; onChange: (v: number) => void;
@@ -169,56 +153,6 @@ function AppCard({ app, onToggle, onExpand, onUpdate, onDelete }: {
   );
 }
 
-function AddAppModal({ visible, existingIds, onAdd, onClose }: {
-  visible: boolean;
-  existingIds: string[];
-  onAdd: (app: Omit<AppConfig, 'enabled' | 'expanded' | 'lockDuration' | 'unlockGoals' | 'unlockTimeLimit'>) => void;
-  onClose: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-  const available = ALL_POSSIBLE_APPS.filter(a => !existingIds.includes(a.id));
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={[styles.modalContainer, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Add an App</Text>
-          <Pressable onPress={onClose} style={styles.modalCloseBtn} hitSlop={8}>
-            <Feather name="x" size={20} color={Colors.text} />
-          </Pressable>
-        </View>
-        <Text style={styles.modalSubtitle}>Select an app to start tracking and blocking it</Text>
-
-        {available.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Feather name="check-circle" size={40} color={Colors.accent} />
-            <Text style={styles.emptyTitle}>All apps added</Text>
-            <Text style={styles.emptyDesc}>You are already tracking all available apps.</Text>
-          </View>
-        ) : (
-          <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 8, paddingTop: 16 }}>
-            {available.map(app => (
-              <Pressable
-                key={app.id}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onAdd(app); onClose(); }}
-                style={({ pressed }) => [styles.availableAppRow, pressed && { opacity: 0.75 }]}
-              >
-                <View style={[styles.appCardIcon, { backgroundColor: app.color + '22' }]}>
-                  <Ionicons name={app.icon as any} size={22} color={app.color} />
-                </View>
-                <Text style={styles.appCardName}>{app.name}</Text>
-                <View style={styles.addIconWrap}>
-                  <Feather name="plus" size={18} color={Colors.accent} />
-                </View>
-              </Pressable>
-            ))}
-            <View style={{ height: 20 }} />
-          </ScrollView>
-        )}
-      </View>
-    </Modal>
-  );
-}
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -228,7 +162,10 @@ export default function SettingsScreen() {
   const isChallengeActive = !!activeChallenge;
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
+  const monitoredStore = useMonitoredAppsStore();
+
   useEffect(() => {
+    monitoredStore.load();
     AsyncStorage.getItem('appConfigs').then(v => {
       if (v) {
         try { setApps(JSON.parse(v)); } catch {}
@@ -243,7 +180,16 @@ export default function SettingsScreen() {
 
   const toggle = (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    save(apps.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a));
+    const updated = apps.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a);
+    save(updated);
+    const toggled = updated.find(a => a.id === id);
+    if (toggled) {
+      if (toggled.enabled) {
+        monitoredStore.addApp({ packageName: id, name: toggled.name, isSystemApp: false, addedAt: Date.now() });
+      } else {
+        monitoredStore.removeApp(id);
+      }
+    }
   };
 
   const expand = (id: string) => {
@@ -257,11 +203,29 @@ export default function SettingsScreen() {
 
   const deleteApp = (id: string) => {
     save(apps.filter(a => a.id !== id));
+    monitoredStore.removeApp(id);
   };
 
-  const addApp = (base: Omit<AppConfig, 'enabled' | 'expanded' | 'lockDuration' | 'unlockGoals' | 'unlockTimeLimit'>) => {
-    const newApp: AppConfig = { ...base, enabled: true, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 60 };
+  const addApp = (pickable: PickableApp) => {
+    const info = { icon: 'apps-outline', color: Colors.accent };
+    try {
+      const { getAppInfo } = require('@/lib/AppNameMapper');
+      const mapped = getAppInfo(pickable.packageName);
+      Object.assign(info, mapped);
+    } catch {}
+    const newApp: AppConfig = {
+      id: pickable.packageName,
+      name: pickable.name,
+      icon: (info as any).icon,
+      color: (info as any).color,
+      enabled: true,
+      expanded: false,
+      lockDuration: 30,
+      unlockGoals: 3,
+      unlockTimeLimit: 60,
+    };
     save([...apps, newApp]);
+    monitoredStore.addApp({ packageName: pickable.packageName, name: pickable.name, isSystemApp: pickable.isSystemApp, addedAt: Date.now() });
   };
 
   const enabledCount = apps.filter(a => a.enabled).length;
@@ -306,9 +270,9 @@ export default function SettingsScreen() {
         </Pressable>
       </ScrollView>
 
-      <AddAppModal
+      <AppPickerModal
         visible={showAddModal}
-        existingIds={apps.map(a => a.id)}
+        excludePackages={apps.map(a => a.id)}
         onAdd={addApp}
         onClose={() => setShowAddModal(false)}
       />

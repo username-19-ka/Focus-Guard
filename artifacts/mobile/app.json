@@ -57,7 +57,8 @@
           }
         }
       ],
-      "./plugins/withUsageStatsManagerFix"
+      "./plugins/withUsageStatsManagerFix",
+      "./plugins/withAppTrackingManifest"
     ],
     "experiments": {
       "typedRoutes": true

@@ -42,9 +42,31 @@ A full-featured screen-time blocker app built with Expo + Supabase.
 ### Tech Stack
 - **Framework**: Expo (SDK 54) + Expo Router (file-based routing)
 - **Auth**: Supabase (email/password)
-- **State**: React Context + AsyncStorage
-- **UI**: React Native, react-native-reanimated, @expo/vector-icons
+- **State**: Zustand + AsyncStorage
+- **UI**: React Native (standard Animated API — no reanimated), @expo/vector-icons
 - **Theme**: Dark mode — charcoal background (#0E0F11), electric teal accent (#00D4AA)
+
+### Native Module (`modules/app-tracking/` → `@focusguard/app-tracking`)
+
+Local Expo native module (expo-modules-core v3, `expo-module.config.json` for autolinking). Provides:
+- `getInstalledApps()` — PackageManager list of all user-launchable apps
+- `getForegroundApp()` — UsageStatsManager query for current foreground package
+- `startMonitoring(packageNames[])` — starts `ForegroundAppService` with monitored list
+- `stopMonitoring()` / `updateMonitoredApps(packageNames[])` — service lifecycle
+- `showOverlay(packageName)` / `hideOverlay()` — WindowManager TYPE_APPLICATION_OVERLAY system overlay
+- `hasOverlayPermission()` — checks SYSTEM_ALERT_WINDOW permission
+
+**Kotlin files:**
+- `AppTrackingModule.kt` — Expo module definition
+- `ForegroundAppService.kt` — Android foreground service, polls UsageStatsManager every 1 000 ms, shows/hides overlay
+- `AppOverlayManager.kt` — singleton, drives WindowManager overlay on main thread
+
+**Config plugin:** `plugins/withAppTrackingManifest.js` registers the service + `FOREGROUND_SERVICE_DATA_SYNC` permission in AndroidManifest.xml during EAS prebuild.
+
+### App Monitoring JS Layer
+- `store/monitoredAppsStore.ts` — Zustand store; persists selected apps to AsyncStorage (`@focusguard_monitored_apps_v1`); starts/stops/syncs native service automatically
+- `lib/AppTrackingService.ts` — JS-side 1 000 ms poller via `setInterval` + AppState listener; exposes `addListener(fn)` for in-app overlay reactions
+- `components/AppPickerModal.tsx` — searchable modal; calls `getInstalledApps()` on Android (real device apps), falls back to curated list in Expo Go / iOS
 
 ### Environment Variables (Secrets)
 - `EXPO_PUBLIC_SUPABASE_URL` — Supabase project URL
