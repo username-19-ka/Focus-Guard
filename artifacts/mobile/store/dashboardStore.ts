@@ -23,12 +23,6 @@ export interface MappedApp {
 
 const DEFAULT_LIMIT = 60;
 
-const DEFAULT_TOP_APPS: MappedApp[] = [
-  { packageName: 'com.instagram.android',     name: 'Instagram',  icon: 'logo-instagram', color: '#E1306C', usage: 87, limit: 60, isRealData: false },
-  { packageName: 'com.zhiliaoapp.musically',  name: 'TikTok',     icon: 'play-circle',    color: '#69C9D0', usage: 45, limit: 30, isRealData: false },
-  { packageName: 'com.twitter.android',       name: 'X (Twitter)',icon: 'logo-twitter',   color: '#1DA1F2', usage: 28, limit: 45, isRealData: false },
-  { packageName: 'com.google.android.youtube',name: 'YouTube',    icon: 'logo-youtube',   color: '#FF0000', usage: 62, limit: 90, isRealData: false },
-];
 
 interface DashboardState {
   timeSavedMinutes: number;
@@ -118,7 +112,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   lastSynced: null,
   isInitialized: false,
 
-  topApps: DEFAULT_TOP_APPS,
+  topApps: [],
   usagePermissionGranted: false,
   isLoadingUsage: false,
   challengeUnlockedAt: null,
@@ -203,7 +197,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           timeSavedMinutes,
         });
       } else {
-        set({ topApps: DEFAULT_TOP_APPS.map(a => ({ ...a, isRealData: false })) });
+        set({ topApps: [] });
       }
     } catch (err) {
       console.warn('[Dashboard] refreshUsageStats error:', err);
