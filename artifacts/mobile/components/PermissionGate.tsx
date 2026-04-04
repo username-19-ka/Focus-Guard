@@ -212,11 +212,19 @@ function PermissionScreen({
       </Pressable>
 
       <Pressable
-        style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.75 }]}
+        style={({ pressed }) => [styles.continueBtn, pressed && { opacity: 0.85 }]}
         onPress={onRecheck}
       >
-        <Feather name="refresh-cw" size={15} color={Colors.accent} />
-        <Text style={styles.secondaryBtnText}>I've granted it — check again</Text>
+        <Text style={styles.continueBtnText}>Continue</Text>
+        <Feather name="arrow-right" size={17} color={Colors.background} />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.recheckBtn, pressed && { opacity: 0.75 }]}
+        onPress={onRecheck}
+      >
+        <Feather name="refresh-cw" size={14} color={Colors.textSecondary} />
+        <Text style={styles.recheckBtnText}>Check again</Text>
       </Pressable>
 
       <View style={styles.stepsCard}>
@@ -326,24 +334,36 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.background,
   },
-  secondaryBtn: {
+  continueBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    backgroundColor: Colors.accentDark,
     borderRadius: 14,
-    paddingVertical: 13,
+    paddingVertical: 15,
     paddingHorizontal: 24,
-    borderWidth: 1.5,
-    borderColor: Colors.accent,
-    backgroundColor: Colors.accentMuted,
     width: '100%',
     justifyContent: 'center',
-    marginBottom: 28,
+    marginBottom: 10,
   },
-  secondaryBtnText: {
-    fontFamily: 'Inter_600SemiBold',
+  continueBtnText: {
+    fontFamily: 'Inter_700Bold',
     fontSize: 15,
-    color: Colors.accent,
+    color: Colors.background,
+  },
+  recheckBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  recheckBtnText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.textSecondary,
   },
 
   stepsCard: {
