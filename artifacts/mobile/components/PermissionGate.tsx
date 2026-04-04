@@ -1,65 +1,91 @@
 /**
- * PermissionGate — hard-blocks the tabs from rendering until the Android
- * "Usage Access" (PACKAGE_USAGE_STATS) permission is confirmed granted.
+ * PermissionGate — hard-blocks the tabs until BOTH required Android permissions
+ * are confirmed granted:
  *
- * • Uses AppOpsManager via the native module — cannot be bypassed by returning
- *   from Settings without actually granting.
- * • Listens to AppState so it re-checks the moment the user comes back from
- *   the Android Settings page.
- * • On iOS and web the gate is transparent (always passes).
+ *   1. Usage Access (PACKAGE_USAGE_STATS) — reads which apps are running and
+ *      how long they have been used.
+ *   2. Display Over Other Apps (SYSTEM_ALERT_WINDOW) — shows the blocking
+ *      overlay on top of monitored apps.
+ *
+ * Without either permission the app renders nothing — no placeholder data,
+ * no app lists, no stats.  The gate shows clear instructions for each step.
+ *
+ * On iOS and web both permissions are irrelevant; the gate is transparent.
+ * Re-checks automatically every time the user returns from Android Settings.
  */
 
 import { Feather, Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { markUsageGranted } from '@/lib/PermissionService';
+import { markUsageGranted, openOverlaySettings } from '@/lib/PermissionService';
 import { isUsagePermissionGranted, openUsageAccessSettings } from '@/lib/UsageStatsService';
 import Colors from '@/constants/colors';
+
+type GateState = 'checking' | 'need_usage' | 'need_overlay' | 'granted';
 
 interface PermissionGateProps {
   children: React.ReactNode;
 }
 
+async function checkOverlayNative(): Promise<boolean> {
+  try {
+    const { hasOverlayPermission } = require('@focusguard/app-tracking');
+    return await hasOverlayPermission();
+  } catch {
+    return false;
+  }
+}
+
 export function PermissionGate({ children }: PermissionGateProps) {
-  const [checking, setChecking] = useState(true);
-  const [granted, setGranted] = useState(false);
-  // Prevent setState calls after the component has unmounted.
-  const mountedRef = React.useRef(true);
-  React.useEffect(() => {
+  const [gateState, setGateState] = useState<GateState>('checking');
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
   const check = useCallback(async () => {
     if (!mountedRef.current) return;
-    setChecking(true);
+    setGateState('checking');
+
     try {
-      const ok = await isUsagePermissionGranted();
+      const usageOk = await isUsagePermissionGranted();
       if (!mountedRef.current) return;
-      if (ok) {
-        try { await markUsageGranted(); } catch { /* non-fatal */ }
+
+      if (!usageOk) {
+        setGateState('need_usage');
+        return;
       }
-      setGranted(ok);
+
+      try { await markUsageGranted(); } catch {}
+
+      const overlayOk = await checkOverlayNative();
+      if (!mountedRef.current) return;
+
+      if (!overlayOk) {
+        setGateState('need_overlay');
+        return;
+      }
+
+      setGateState('granted');
     } catch {
-      // isUsagePermissionGranted should never throw, but be safe.
-      if (mountedRef.current) setGranted(false);
-    } finally {
-      if (mountedRef.current) setChecking(false);
+      if (mountedRef.current) setGateState('need_usage');
     }
   }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
-      setGranted(true);
-      setChecking(false);
+      setGateState('granted');
       return;
     }
 
@@ -71,95 +97,205 @@ export function PermissionGate({ children }: PermissionGateProps) {
     return () => sub.remove();
   }, [check]);
 
-  if (Platform.OS !== 'android' || granted) {
+  if (Platform.OS !== 'android' || gateState === 'granted') {
     return <>{children}</>;
   }
 
-  if (checking) {
+  if (gateState === 'checking') {
     return (
-      <View style={styles.container}>
+      <View style={styles.center}>
         <ActivityIndicator color={Colors.accent} size="large" />
         <Text style={styles.checkingText}>Verifying permissions…</Text>
       </View>
     );
   }
 
+  if (gateState === 'need_usage') {
+    return (
+      <PermissionScreen
+        icon="bar-chart-2"
+        iconColor={Colors.warning}
+        iconBg={Colors.warningMuted}
+        step={1}
+        title="Usage Access Required"
+        description={
+          'FocusGuard needs Android\'s "Usage Access" permission to see which apps you\'re using and for how long.\n\nWithout this, no data or apps can be displayed.'
+        }
+        primaryLabel="Open Usage Access Settings"
+        onPrimary={() => openUsageAccessSettings()}
+        onRecheck={check}
+        steps={[
+          'Tap "Open Usage Access Settings" below',
+          'Find FocusGuard in the list',
+          'Toggle "Permit usage access" ON',
+          'Return here — the app will unlock automatically',
+        ]}
+      />
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <View style={styles.iconWrap}>
-        <Ionicons name="shield-half" size={72} color={Colors.warning} />
+    <PermissionScreen
+      icon="layers"
+      iconColor={Colors.accent}
+      iconBg={Colors.accentMuted}
+      step={2}
+      title="Overlay Permission Required"
+      description={
+        'FocusGuard needs the "Display Over Other Apps" permission to show a blocking screen when you open a restricted app.\n\nWithout this, the app blocker cannot work.'
+      }
+      primaryLabel="Open Overlay Settings"
+      onPrimary={() => openOverlaySettings()}
+      onRecheck={check}
+      steps={[
+        'Tap "Open Overlay Settings" below',
+        'Find FocusGuard in the list',
+        'Toggle "Allow display over other apps" ON',
+        'Return here — setup will complete automatically',
+      ]}
+    />
+  );
+}
+
+function PermissionScreen({
+  icon,
+  iconColor,
+  iconBg,
+  step,
+  title,
+  description,
+  primaryLabel,
+  onPrimary,
+  onRecheck,
+  steps,
+}: {
+  icon: React.ComponentProps<typeof Feather>['name'];
+  iconColor: string;
+  iconBg: string;
+  step: number;
+  title: string;
+  description: string;
+  primaryLabel: string;
+  onPrimary: () => void;
+  onRecheck: () => void;
+  steps: string[];
+}) {
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.stepIndicator}>
+        <View style={[styles.stepDot, step >= 1 ? styles.stepDotActive : styles.stepDotDim]}>
+          <Text style={styles.stepDotText}>1</Text>
+        </View>
+        <View style={[styles.stepLine, step >= 2 ? styles.stepLineActive : {}]} />
+        <View style={[styles.stepDot, step >= 2 ? styles.stepDotActive : styles.stepDotDim]}>
+          <Text style={styles.stepDotText}>2</Text>
+        </View>
       </View>
 
-      <Text style={styles.title}>Usage Access Required</Text>
-      <Text style={styles.body}>
-        FocusGuard needs Android's "Usage Access" permission to read which apps
-        are running and how long you've used them. Without it, the dashboard
-        can only show placeholder data.
-      </Text>
+      <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
+        <Feather name={icon} size={48} color={iconColor} />
+      </View>
+
+      <Text style={styles.title}>{title}</Text>
+      <Text style={styles.body}>{description}</Text>
 
       <Pressable
         style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.85 }]}
-        onPress={() => openUsageAccessSettings()}
+        onPress={onPrimary}
       >
-        <Feather name="settings" size={18} color={Colors.background} />
-        <Text style={styles.primaryBtnText}>Open Usage Access Settings</Text>
+        <Feather name="external-link" size={17} color={Colors.background} />
+        <Text style={styles.primaryBtnText}>{primaryLabel}</Text>
       </Pressable>
 
       <Pressable
         style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.75 }]}
-        onPress={check}
+        onPress={onRecheck}
       >
-        <Feather name="refresh-cw" size={16} color={Colors.accent} />
+        <Feather name="refresh-cw" size={15} color={Colors.accent} />
         <Text style={styles.secondaryBtnText}>I've granted it — check again</Text>
       </Pressable>
 
       <View style={styles.stepsCard}>
-        <Text style={styles.stepsTitle}>How to grant it:</Text>
-        {[
-          'Tap "Open Usage Access Settings" above',
-          'Find FocusGuard in the list',
-          'Toggle "Permit usage access" ON',
-          'Return here — the dashboard loads automatically',
-        ].map((step, i) => (
+        <Text style={styles.stepsTitle}>How to grant it</Text>
+        {steps.map((s, i) => (
           <View key={i} style={styles.stepRow}>
             <View style={styles.stepBadge}>
               <Text style={styles.stepNum}>{i + 1}</Text>
             </View>
-            <Text style={styles.stepText}>{step}</Text>
+            <Text style={styles.stepText}>{s}</Text>
           </View>
         ))}
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  center: {
     flex: 1,
     backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 28,
-    paddingBottom: 40,
-  },
-  iconWrap: {
-    width: 120,
-    height: 120,
-    borderRadius: 36,
-    backgroundColor: Colors.warningMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 28,
+    gap: 16,
   },
   checkingText: {
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
     color: Colors.textSecondary,
-    marginTop: 16,
   },
+
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  content: {
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    paddingTop: 60,
+    paddingBottom: 60,
+  },
+
+  stepIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 40,
+    gap: 0,
+  },
+  stepDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepDotActive: { backgroundColor: Colors.accent },
+  stepDotDim: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+  stepDotText: { fontFamily: 'Inter_700Bold', fontSize: 13, color: Colors.background },
+  stepLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: Colors.border,
+    marginHorizontal: 8,
+    width: 60,
+  },
+  stepLineActive: { backgroundColor: Colors.accent },
+
+  iconWrap: {
+    width: 100,
+    height: 100,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 28,
+  },
+
   title: {
     fontFamily: 'Inter_700Bold',
-    fontSize: 26,
+    fontSize: 24,
     color: Colors.text,
     textAlign: 'center',
     marginBottom: 14,
@@ -172,6 +308,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginBottom: 32,
   },
+
   primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -208,6 +345,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.accent,
   },
+
   stepsCard: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
@@ -219,10 +357,10 @@ const styles = StyleSheet.create({
   },
   stepsTitle: {
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.textTertiary,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
     marginBottom: 2,
   },
   stepRow: {
@@ -238,6 +376,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 1,
+    flexShrink: 0,
   },
   stepNum: {
     fontFamily: 'Inter_700Bold',

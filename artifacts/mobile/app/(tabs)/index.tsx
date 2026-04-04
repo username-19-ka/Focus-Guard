@@ -20,7 +20,6 @@ import { useAuth } from '@/context/AuthContext';
 import { useDashboardStore, MappedApp } from '@/store/dashboardStore';
 import { useBankedMinutes } from '@/store/bankedMinutesStore';
 import { useActiveChallenge } from '@/store/activeChallengeStore';
-import { openUsageAccessSettings } from '@/lib/UsageStatsService';
 import FocusRing from '@/components/FocusRing';
 import WeeklyBarChart from '@/components/WeeklyBarChart';
 import Colors from '@/constants/colors';
@@ -277,32 +276,24 @@ export default function DashboardScreen() {
         </Pressable>
       </View>
 
-      {Platform.OS === 'android' && !usagePermissionGranted && (
-        <Pressable
-          style={styles.permissionBanner}
-          onPress={async () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            await openUsageAccessSettings();
-            setTimeout(() => refreshUsageStats(), 1500);
-          }}
-        >
-          <Ionicons name="shield-half" size={18} color={Colors.warning} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.permissionBannerTitle}>Usage Access required for real data</Text>
-            <Text style={styles.permissionBannerSub}>Tap to open Android settings and grant access</Text>
-          </View>
-          <Feather name="chevron-right" size={16} color={Colors.warning} />
-        </Pressable>
+      {topApps.length === 0 && !isLoadingUsage ? (
+        <View style={styles.noDataCard}>
+          <Feather name="clock" size={32} color={Colors.textTertiary} />
+          <Text style={styles.noDataTitle}>No Usage Data Yet</Text>
+          <Text style={styles.noDataDesc}>
+            Use your device normally — app usage will appear here after FocusGuard detects activity.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.appsCard}>
+          {topApps.map((app, i) => (
+            <React.Fragment key={app.packageName}>
+              <AppUsageRow app={app} />
+              {i < topApps.length - 1 && <View style={styles.rowDivider} />}
+            </React.Fragment>
+          ))}
+        </View>
       )}
-
-      <View style={styles.appsCard}>
-        {topApps.map((app, i) => (
-          <React.Fragment key={app.packageName}>
-            <AppUsageRow app={app} />
-            {i < topApps.length - 1 && <View style={styles.rowDivider} />}
-          </React.Fragment>
-        ))}
-      </View>
 
       <Pressable style={styles.bragBtn} onPress={handleShare}>
         <Feather name="share-2" size={16} color={Colors.background} />
@@ -524,29 +515,30 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent,
     opacity: 0.7,
   },
-  permissionBanner: {
+  noDataCard: {
     marginHorizontal: 20,
     marginBottom: 10,
-    backgroundColor: Colors.warningMuted,
-    borderRadius: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.warning + '44',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: 'row',
+    borderColor: Colors.border,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
     alignItems: 'center',
     gap: 10,
   },
-  permissionBannerTitle: {
+  noDataTitle: {
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 13,
-    color: Colors.warning,
+    fontSize: 15,
+    color: Colors.text,
+    marginTop: 4,
   },
-  permissionBannerSub: {
+  noDataDesc: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-    color: Colors.warning + 'BB',
-    marginTop: 1,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   progressTrack: {
     height: 4,
