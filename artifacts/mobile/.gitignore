@@ -31,11 +31,12 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files — keep .env committed so EAS build servers can read it
 .env*.local
+.env.local
+.env.production.local
+.env.development.local
 
 # typescript
 *.tsbuildinfo
 .vercel
-
-.env
