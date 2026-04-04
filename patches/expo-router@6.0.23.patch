@@ -1,0 +1,50 @@
+diff --git a/_ctx.android.js b/_ctx.android.js
+index 1afb1f817e82fe371866ea51872006b5dc0da4a5..4fc4c250e287866cfc8a03e89c48afb1d6dfda0b 100644
+--- a/_ctx.android.js
++++ b/_ctx.android.js
+@@ -1,6 +1,5 @@
+ export const ctx = require.context(
+-  process.env.EXPO_ROUTER_APP_ROOT,
++  '../../app',
+   true,
+-  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.ios|\.web)?\.[tj]sx?$/,
+-  process.env.EXPO_ROUTER_IMPORT_MODE
++  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.ios|\.web)?\.[tj]sx?$/
+ );
+diff --git a/_ctx.ios.js b/_ctx.ios.js
+index b30ee6c249cd8bb22ec7644c89202881004f2d83..aab32ea893edf4a1b4b704198f2940cea3788da6 100644
+--- a/_ctx.ios.js
++++ b/_ctx.ios.js
+@@ -1,6 +1,5 @@
+ export const ctx = require.context(
+-  process.env.EXPO_ROUTER_APP_ROOT,
++  '../../app',
+   true,
+-  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.android|\.web)?\.[tj]sx?$/,
+-  process.env.EXPO_ROUTER_IMPORT_MODE
++  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.android|\.web)?\.[tj]sx?$/
+ );
+diff --git a/_ctx.js b/_ctx.js
+index 0979e39c71aabfade7ec09f69f893044fe2ff35f..ce105b76715c51f1c0e07639ef9bb3b408bbd677 100644
+--- a/_ctx.js
++++ b/_ctx.js
+@@ -1,5 +1,5 @@
+ export const ctx = require.context(
+-  process.env.EXPO_ROUTER_APP_ROOT,
++  '../../app',
+   true,
+   // Ignore root `./+html.js` and API route files `./generate+api.tsx`.
+   /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)))\.[tj]sx?$).*\.[tj]sx?$/
+diff --git a/_ctx.web.js b/_ctx.web.js
+index 8061699188ad92137c40ab0228a381b736f5d35c..815536c62a1097e9fecb788a8e117b1071822e3a 100644
+--- a/_ctx.web.js
++++ b/_ctx.web.js
+@@ -1,6 +1,5 @@
+ export const ctx = require.context(
+-  process.env.EXPO_ROUTER_APP_ROOT,
++  '../../app',
+   true,
+-  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+middleware)|(?:\+(html|native-intent))))\.[tj]sx?$).*(?:\.android|\.ios|\.native)?\.[tj]sx?$/,
+-  process.env.EXPO_ROUTER_IMPORT_MODE
++  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+middleware)|(?:\+(html|native-intent))))\.[tj]sx?$).*(?:\.android|\.ios|\.native)?\.[tj]sx?$/
+ );

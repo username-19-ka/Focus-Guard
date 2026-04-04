@@ -1,0 +1,42 @@
+--- _ctx.android.js	2026-04-04 15:45:22.694247154 +0000
++++ /tmp/expo-router-patch/_ctx.android.js	2026-04-04 15:53:57.927630109 +0000
+@@ -1,6 +1,5 @@
+ export const ctx = require.context(
+-  process.env.EXPO_ROUTER_APP_ROOT,
++  '../../app',
+   true,
+-  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.ios|\.web)?\.[tj]sx?$/,
+-  process.env.EXPO_ROUTER_IMPORT_MODE
++  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.ios|\.web)?\.[tj]sx?$/
+ );
+--- _ctx.ios.js	2026-04-04 15:45:22.695132554 +0000
++++ /tmp/expo-router-patch/_ctx.ios.js	2026-04-04 15:53:57.935630103 +0000
+@@ -1,6 +1,5 @@
+ export const ctx = require.context(
+-  process.env.EXPO_ROUTER_APP_ROOT,
++  '../../app',
+   true,
+-  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.android|\.web)?\.[tj]sx?$/,
+-  process.env.EXPO_ROUTER_IMPORT_MODE
++  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.android|\.web)?\.[tj]sx?$/
+ );
+--- _ctx.js	2026-04-04 15:45:22.695962174 +0000
++++ /tmp/expo-router-patch/_ctx.js	2026-04-04 15:53:57.945630096 +0000
+@@ -1,5 +1,5 @@
+ export const ctx = require.context(
+-  process.env.EXPO_ROUTER_APP_ROOT,
++  '../../app',
+   true,
+   // Ignore root `./+html.js` and API route files `./generate+api.tsx`.
+   /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)))\.[tj]sx?$).*\.[tj]sx?$/
+--- _ctx.web.js	2026-04-04 15:45:22.697194415 +0000
++++ /tmp/expo-router-patch/_ctx.web.js	2026-04-04 15:53:57.954630089 +0000
+@@ -1,6 +1,5 @@
+ export const ctx = require.context(
+-  process.env.EXPO_ROUTER_APP_ROOT,
++  '../../app',
+   true,
+-  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+middleware)|(?:\+(html|native-intent))))\.[tj]sx?$).*(?:\.android|\.ios|\.native)?\.[tj]sx?$/,
+-  process.env.EXPO_ROUTER_IMPORT_MODE
++  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+middleware)|(?:\+(html|native-intent))))\.[tj]sx?$).*(?:\.android|\.ios|\.native)?\.[tj]sx?$/
+ );
