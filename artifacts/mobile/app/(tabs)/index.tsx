@@ -21,7 +21,7 @@ import { useDashboardStore, MappedApp } from '@/store/dashboardStore';
 import { openUsageAccessSettings } from '@/lib/UsageStatsService';
 import { useBankedMinutes } from '@/store/bankedMinutesStore';
 import { useActiveChallenge } from '@/store/activeChallengeStore';
-import FocusRing from '@/components/FocusRing';
+
 import WeeklyBarChart from '@/components/WeeklyBarChart';
 import Colors from '@/constants/colors';
 
@@ -34,40 +34,6 @@ function minutesToDisplay(mins: number) {
   return `${m}m`;
 }
 
-function ImpactCards() {
-  const { timeSavedMinutes, focusRatioPercent, streakDays } = useDashboardStore();
-
-  return (
-    <View style={styles.impactRow}>
-      <View style={[styles.impactCard, styles.heroCard]}>
-        <Text style={styles.impactCardLabel}>Time Saved Today</Text>
-        <Text style={styles.heroValue}>{minutesToDisplay(timeSavedMinutes)}</Text>
-        <Text style={styles.heroSub}>vs. your old habits</Text>
-        <View style={styles.heroBar}>
-          <View style={[styles.heroBarFill, { width: `${Math.min((timeSavedMinutes / 240) * 100, 100)}%` }]} />
-        </View>
-      </View>
-
-      <View style={styles.rightColumn}>
-        <View style={[styles.impactCard, styles.ringCard]}>
-          <FocusRing
-            percent={focusRatioPercent}
-            size={80}
-            strokeWidth={8}
-            label="Focus Ratio"
-            sublabel="of day in zones"
-          />
-        </View>
-
-        <View style={[styles.impactCard, styles.streakCard]}>
-          <Feather name="zap" size={18} color={Colors.warning} />
-          <Text style={styles.streakValue}>{streakDays}</Text>
-          <Text style={styles.streakLabel}>day streak</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
 
 function BankedTimeCard() {
   const { bankedMinutes, sessionUntil, loadFromStorage } = useBankedMinutes();
@@ -262,11 +228,6 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <View style={styles.sectionSpacer}>
-        <Text style={styles.sectionTitle}>Today's Impact</Text>
-      </View>
-      <ImpactCards />
-
       <BankedTimeCard />
 
       <WeeklySection />
@@ -283,36 +244,34 @@ export default function DashboardScreen() {
         </Pressable>
       </View>
 
-      {topApps.length === 0 && !isLoadingUsage ? (
-        !usagePermissionGranted ? (
-          <View style={styles.permCard}>
-            <View style={styles.permIconWrap}>
-              <Feather name="shield-off" size={28} color={Colors.warning} />
-            </View>
-            <Text style={styles.permTitle}>Usage Access Required</Text>
-            <Text style={styles.permDesc}>
-              FocusGuard needs Usage Access permission to track your app usage and calculate your Focus Ratio, Time Saved, and Streaks.
-            </Text>
-            <Pressable
-              style={({ pressed }) => [styles.permBtn, pressed && { opacity: 0.85 }]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                openUsageAccessSettings();
-              }}
-            >
-              <Feather name="external-link" size={16} color={Colors.background} />
-              <Text style={styles.permBtnText}>Allow Access</Text>
-            </Pressable>
+      {!usagePermissionGranted ? (
+        <View style={styles.permCard}>
+          <View style={styles.permIconWrap}>
+            <Feather name="shield-off" size={28} color={Colors.warning} />
           </View>
-        ) : (
-          <View style={styles.noDataCard}>
-            <Feather name="clock" size={32} color={Colors.textTertiary} />
-            <Text style={styles.noDataTitle}>No Usage Data Yet</Text>
-            <Text style={styles.noDataDesc}>
-              Use your device normally — app usage will appear here after FocusGuard detects activity.
-            </Text>
-          </View>
-        )
+          <Text style={styles.permTitle}>Usage Access Required</Text>
+          <Text style={styles.permDesc}>
+            FocusGuard needs Usage Access permission to track your app usage and calculate your Focus Ratio, Time Saved, and Streaks.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.permBtn, pressed && { opacity: 0.85 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              openUsageAccessSettings();
+            }}
+          >
+            <Feather name="external-link" size={16} color={Colors.background} />
+            <Text style={styles.permBtnText}>Allow Access</Text>
+          </Pressable>
+        </View>
+      ) : topApps.length === 0 && !isLoadingUsage ? (
+        <View style={styles.noDataCard}>
+          <Feather name="clock" size={32} color={Colors.textTertiary} />
+          <Text style={styles.noDataTitle}>No Usage Data Yet</Text>
+          <Text style={styles.noDataDesc}>
+            Use your device normally — app usage will appear here after FocusGuard detects activity.
+          </Text>
+        </View>
       ) : (
         <View style={styles.appsCard}>
           {topApps.map((app, i) => (
@@ -390,77 +349,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.accent,
   },
-  impactRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 12,
-    marginBottom: 16,
-  },
-  impactCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 16,
-  },
-  heroCard: {
-    flex: 1,
-    gap: 4,
-  },
-  heroValue: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 28,
-    color: Colors.text,
-    marginTop: 2,
-  },
-  impactCardLabel: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-    color: Colors.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  heroSub: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-    color: Colors.textSecondary,
-    marginBottom: 8,
-  },
-  heroBar: {
-    height: 4,
-    backgroundColor: Colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  heroBarFill: {
-    height: 4,
-    backgroundColor: Colors.accent,
-    borderRadius: 2,
-  },
-  rightColumn: {
-    gap: 12,
-  },
-  ringCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-  },
-  streakCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    gap: 2,
-  },
-  streakValue: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 22,
-    color: Colors.text,
-  },
-  streakLabel: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-    color: Colors.textSecondary,
-  },
   weekCard: {
     marginHorizontal: 20,
     marginBottom: 16,
@@ -481,20 +369,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
     marginTop: 3,
-  },
-  weekBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.accentMuted,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  weekBadgeText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12,
-    color: Colors.accent,
   },
   appsCard: {
     marginHorizontal: 20,
