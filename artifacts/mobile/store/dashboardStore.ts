@@ -90,21 +90,17 @@ function getWeekLabels(): string[] {
   });
 }
 
-function seedWeeklyData(): number[] {
-  return [22, 35, 48, 31, 55, 42, 60];
-}
-
 export const useDashboardStore = create<DashboardState>((set, get) => ({
-  timeSavedMinutes: 148,
-  focusRatioPercent: 72,
-  streakDays: 4,
+  timeSavedMinutes: 0,
+  focusRatioPercent: 0,
+  streakDays: 0,
   wallOfShameToday: 0,
   wallOfShameTotal: 0,
   shameHistory: [],
-  weeklyData: seedWeeklyData(),
+  weeklyData: Array(7).fill(0),
   weekLabels: getWeekLabels(),
-  beforeDailyMinutes: 272,
-  afterDailyMinutes: 132,
+  beforeDailyMinutes: 0,
+  afterDailyMinutes: 0,
   globalRank: null,
   leaderboardOptIn: false,
   focusModeActive: false,
@@ -144,8 +140,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const allHistory: ShameEntry[] = historyStr ? JSON.parse(historyStr) : [];
     const today = getTodayStr();
     const todayHistory = allHistory.filter(e => e.date === today);
-    const streakDays = streakStr ? parseInt(streakStr, 10) : 4;
-    const weeklyData = weeklyStr ? JSON.parse(weeklyStr) : seedWeeklyData();
+    const streakDays = streakStr ? parseInt(streakStr, 10) : 0;
+    const weeklyData = weeklyStr ? JSON.parse(weeklyStr) : Array(7).fill(0);
 
     set({
       wallOfShameTotal: totalCount,
