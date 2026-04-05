@@ -16,20 +16,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/colors';
+import { getAppInfo } from '@/lib/AppNameMapper';
+import AppPickerModal, { type PickableApp } from '@/components/AppPickerModal';
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 const COLORS = [Colors.accent, Colors.blue, Colors.warning, Colors.danger, '#A78BFA', '#FB923C', '#34D399'];
-
-const MOCK_BLOCKABLE_APPS = [
-  { packageName: 'com.instagram.android',      name: 'Instagram',  icon: 'logo-instagram' as const, color: '#E1306C' },
-  { packageName: 'com.zhiliaoapp.musically',   name: 'TikTok',     icon: 'play-circle'    as const, color: '#69C9D0' },
-  { packageName: 'com.twitter.android',        name: 'X',          icon: 'logo-twitter'   as const, color: '#1DA1F2' },
-  { packageName: 'com.google.android.youtube', name: 'YouTube',    icon: 'logo-youtube'   as const, color: '#FF0000' },
-  { packageName: 'com.reddit.frontpage',       name: 'Reddit',     icon: 'logo-reddit'    as const, color: '#FF4500' },
-  { packageName: 'com.facebook.katana',        name: 'Facebook',   icon: 'logo-facebook'  as const, color: '#1877F2' },
-  { packageName: 'com.snapchat.android',       name: 'Snapchat',   icon: 'camera'         as const, color: '#FFFC00' },
-  { packageName: 'com.linkedin.android',       name: 'LinkedIn',   icon: 'logo-linkedin'  as const, color: '#0A66C2' },
-];
 
 type FocusZone = {
   id: string;
@@ -44,11 +35,7 @@ type FocusZone = {
   blockedApps: string[];
 };
 
-const DEFAULT_ZONES: FocusZone[] = [
-  { id: '1', name: 'Work Hours',  startHour: 9,  startMin: 0, endHour: 17, endMin: 0,  days: [0, 1, 2, 3, 4],          color: Colors.accent,  enabled: true,  blockedApps: [] },
-  { id: '2', name: 'Study Time',  startHour: 19, startMin: 0, endHour: 21, endMin: 0,  days: [0, 1, 2, 3, 4],          color: Colors.blue,    enabled: false, blockedApps: [] },
-  { id: '3', name: 'No Screens',  startHour: 22, startMin: 0, endHour: 23, endMin: 59, days: [0, 1, 2, 3, 4, 5, 6],   color: Colors.danger,  enabled: true,  blockedApps: [] },
-];
+type PickedApp = { packageName: string; name: string };
 
 function formatTime(h: number, m: number) {
   const ampm = h >= 12 ? 'PM' : 'AM';
@@ -92,17 +79,37 @@ function TimeWheel({ label, hour, min, onHourChange, onMinChange }: {
   );
 }
 
-function AppBlockSelector({ selected, onToggle }: {
+function AppBlockSelector({
+  selected,
+  availableApps,
+  onToggle,
+  onAdd,
+}: {
   selected: string[];
+  availableApps: PickedApp[];
   onToggle: (pkg: string) => void;
+  onAdd: () => void;
 }) {
+  if (availableApps.length === 0) {
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.addAppChip, pressed && { opacity: 0.8 }]}
+        onPress={onAdd}
+      >
+        <Feather name="plus-circle" size={16} color={Colors.accent} />
+        <Text style={styles.addAppChipText}>Add App</Text>
+      </Pressable>
+    );
+  }
+
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.appSelectorList}
     >
-      {MOCK_BLOCKABLE_APPS.map(item => {
+      {availableApps.map(item => {
+        const info = getAppInfo(item.packageName);
         const isSelected = selected.includes(item.packageName);
         return (
           <Pressable
@@ -113,23 +120,30 @@ function AppBlockSelector({ selected, onToggle }: {
             }}
             style={[
               styles.appChip,
-              isSelected && { borderColor: item.color, borderWidth: 2, backgroundColor: item.color + '18' },
+              isSelected && { borderColor: info.color, borderWidth: 2, backgroundColor: info.color + '18' },
             ]}
           >
-            <View style={[styles.appChipIcon, { backgroundColor: item.color + '22' }]}>
-              <Ionicons name={item.icon} size={18} color={item.color} />
+            <View style={[styles.appChipIcon, { backgroundColor: info.color + '22' }]}>
+              <Ionicons name={info.icon as any} size={18} color={info.color} />
             </View>
             <Text style={[styles.appChipName, isSelected && { color: Colors.text }]} numberOfLines={1}>
               {item.name}
             </Text>
             {isSelected && (
-              <View style={[styles.appChipCheck, { backgroundColor: item.color }]}>
+              <View style={[styles.appChipCheck, { backgroundColor: info.color }]}>
                 <Feather name="check" size={9} color={Colors.background} />
               </View>
             )}
           </Pressable>
         );
       })}
+      <Pressable
+        style={({ pressed }) => [styles.addAppChip, pressed && { opacity: 0.8 }]}
+        onPress={onAdd}
+      >
+        <Feather name="plus-circle" size={16} color={Colors.accent} />
+        <Text style={styles.addAppChipText}>Add App</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -256,6 +270,8 @@ function ZoneModal({ visible, zone, onSave, onClose }: {
   const [days, setDays] = useState<number[]>(zone?.days ?? [0, 1, 2, 3, 4]);
   const [color, setColor] = useState(zone?.color ?? Colors.accent);
   const [blockedApps, setBlockedApps] = useState<string[]>(zone?.blockedApps ?? []);
+  const [availableApps, setAvailableApps] = useState<PickedApp[]>([]);
+  const [showAppPicker, setShowAppPicker] = useState(false);
 
   useEffect(() => {
     if (visible && zone) {
@@ -279,6 +295,20 @@ function ZoneModal({ visible, zone, onSave, onClose }: {
     }
   }, [visible, zone]);
 
+  useEffect(() => {
+    if (!visible) return;
+    AsyncStorage.getItem('appConfigs').then(v => {
+      if (v) {
+        try {
+          const configs = JSON.parse(v) as Array<{ id: string; name: string }>;
+          setAvailableApps(configs.map(c => ({ packageName: c.id, name: c.name })));
+        } catch {}
+      } else {
+        setAvailableApps([]);
+      }
+    });
+  }, [visible]);
+
   const toggleDay = (d: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
@@ -286,6 +316,15 @@ function ZoneModal({ visible, zone, onSave, onClose }: {
 
   const toggleApp = (pkg: string) => {
     setBlockedApps(prev => prev.includes(pkg) ? prev.filter(x => x !== pkg) : [...prev, pkg]);
+  };
+
+  const handlePickApp = (app: PickableApp) => {
+    const already = availableApps.find(a => a.packageName === app.packageName);
+    if (!already) {
+      setAvailableApps(prev => [...prev, { packageName: app.packageName, name: app.name }]);
+    }
+    setBlockedApps(prev => prev.includes(app.packageName) ? prev : [...prev, app.packageName]);
+    setShowAppPicker(false);
   };
 
   const save = () => {
@@ -302,92 +341,106 @@ function ZoneModal({ visible, zone, onSave, onClose }: {
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
-          <View style={styles.modalHandle} />
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{zone?.id ? 'Edit' : 'New'} Focus Zone</Text>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <Feather name="x" size={22} color={Colors.textSecondary} />
-            </Pressable>
+    <>
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{zone?.id ? 'Edit' : 'New'} Focus Zone</Text>
+              <Pressable onPress={onClose} hitSlop={8}>
+                <Feather name="x" size={22} color={Colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.fieldWrap}>
+                <Text style={styles.fieldLabel}>Zone Name</Text>
+                <TextInput
+                  style={styles.nameInput}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="e.g. Work Hours"
+                  placeholderTextColor={Colors.textTertiary}
+                />
+              </View>
+
+              <View style={styles.fieldWrap}>
+                <Text style={styles.fieldLabel}>Time Range</Text>
+                <View style={styles.timeRow}>
+                  <TimeWheel label="Start" hour={startH} min={startM} onHourChange={setStartH} onMinChange={setStartM} />
+                  <Feather name="arrow-right" size={18} color={Colors.textTertiary} />
+                  <TimeWheel label="End" hour={endH} min={endM} onHourChange={setEndH} onMinChange={setEndM} />
+                </View>
+              </View>
+
+              <View style={styles.fieldWrap}>
+                <Text style={styles.fieldLabel}>Days</Text>
+                <View style={styles.daysRow}>
+                  {DAYS.map((d, i) => (
+                    <Pressable
+                      key={d}
+                      onPress={() => toggleDay(i)}
+                      style={[styles.dayChip, days.includes(i) && { backgroundColor: color }]}
+                    >
+                      <Text style={[styles.dayChipText, days.includes(i) && { color: Colors.background }]}>{d}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.fieldWrap}>
+                <Text style={styles.fieldLabel}>Apps to Block</Text>
+                <Text style={styles.fieldSub}>
+                  {blockedApps.length === 0
+                    ? 'Select apps to restrict during this zone'
+                    : `${blockedApps.length} app${blockedApps.length !== 1 ? 's' : ''} selected`}
+                </Text>
+                <AppBlockSelector
+                  selected={blockedApps}
+                  availableApps={availableApps}
+                  onToggle={toggleApp}
+                  onAdd={() => setShowAppPicker(true)}
+                />
+              </View>
+
+              <View style={styles.fieldWrap}>
+                <Text style={styles.fieldLabel}>Color</Text>
+                <View style={styles.colorRow}>
+                  {COLORS.map(c => (
+                    <Pressable
+                      key={c}
+                      onPress={() => setColor(c)}
+                      style={[styles.colorChip, { backgroundColor: c }, color === c && styles.colorChipSelected]}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.85 }]}
+                onPress={save}
+              >
+                <Text style={styles.saveBtnText}>Save Zone</Text>
+              </Pressable>
+            </ScrollView>
           </View>
-
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Zone Name</Text>
-              <TextInput
-                style={styles.nameInput}
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g. Work Hours"
-                placeholderTextColor={Colors.textTertiary}
-              />
-            </View>
-
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Time Range</Text>
-              <View style={styles.timeRow}>
-                <TimeWheel label="Start" hour={startH} min={startM} onHourChange={setStartH} onMinChange={setStartM} />
-                <Feather name="arrow-right" size={18} color={Colors.textTertiary} />
-                <TimeWheel label="End" hour={endH} min={endM} onHourChange={setEndH} onMinChange={setEndM} />
-              </View>
-            </View>
-
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Days</Text>
-              <View style={styles.daysRow}>
-                {DAYS.map((d, i) => (
-                  <Pressable
-                    key={d}
-                    onPress={() => toggleDay(i)}
-                    style={[styles.dayChip, days.includes(i) && { backgroundColor: color }]}
-                  >
-                    <Text style={[styles.dayChipText, days.includes(i) && { color: Colors.background }]}>{d}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Apps to Block</Text>
-              <Text style={styles.fieldSub}>
-                {blockedApps.length === 0
-                  ? 'Select apps to restrict during this zone'
-                  : `${blockedApps.length} app${blockedApps.length !== 1 ? 's' : ''} selected`}
-              </Text>
-              <AppBlockSelector selected={blockedApps} onToggle={toggleApp} />
-            </View>
-
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Color</Text>
-              <View style={styles.colorRow}>
-                {COLORS.map(c => (
-                  <Pressable
-                    key={c}
-                    onPress={() => setColor(c)}
-                    style={[styles.colorChip, { backgroundColor: c }, color === c && styles.colorChipSelected]}
-                  />
-                ))}
-              </View>
-            </View>
-
-            <Pressable
-              style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.85 }]}
-              onPress={save}
-            >
-              <Text style={styles.saveBtnText}>Save Zone</Text>
-            </Pressable>
-          </ScrollView>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      <AppPickerModal
+        visible={showAppPicker}
+        excludePackages={availableApps.map(a => a.packageName)}
+        onAdd={handlePickApp}
+        onClose={() => setShowAppPicker(false)}
+      />
+    </>
   );
 }
 
 export default function FocusZonesScreen() {
   const insets = useSafeAreaInsets();
-  const [zones, setZones] = useState<FocusZone[]>(DEFAULT_ZONES);
+  const [zones, setZones] = useState<FocusZone[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingZone, setEditingZone] = useState<FocusZone | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -451,6 +504,13 @@ export default function FocusZonesScreen() {
           <Ionicons name="time-outline" size={48} color={Colors.textTertiary} />
           <Text style={styles.emptyTitle}>No Focus Zones</Text>
           <Text style={styles.emptyDesc}>Create a schedule to automatically block distractions during key times.</Text>
+          <Pressable
+            style={({ pressed }) => [styles.emptyAddBtn, pressed && { opacity: 0.8 }]}
+            onPress={() => { setEditingZone(null); setModalVisible(true); }}
+          >
+            <Feather name="plus" size={16} color={Colors.background} />
+            <Text style={styles.emptyAddBtnText}>Create a Zone</Text>
+          </Pressable>
         </View>
       ) : (
         <ScrollView
@@ -503,6 +563,17 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 40 },
   emptyTitle: { fontFamily: 'Inter_700Bold', fontSize: 18, color: Colors.text },
   emptyDesc: { fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+  emptyAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.accent,
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    marginTop: 8,
+  },
+  emptyAddBtnText: { fontFamily: 'Inter_700Bold', fontSize: 14, color: Colors.background },
   zoneCard: {
     flexDirection: 'row',
     backgroundColor: Colors.surface,
@@ -614,31 +685,27 @@ const styles = StyleSheet.create({
   timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
   timeWheel: { alignItems: 'center', gap: 8 },
   timeWheelLabel: { fontFamily: 'Inter_500Medium', fontSize: 12, color: Colors.textTertiary },
-  timeWheelControls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  timeWheelControls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   timeUnit: { alignItems: 'center', gap: 4 },
-  timeValue: { fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.text, minWidth: 48, textAlign: 'center' },
-  timeColon: { fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.textSecondary },
+  timeValue: { fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.text, width: 48, textAlign: 'center' },
+  timeColon: { fontFamily: 'Inter_700Bold', fontSize: 28, color: Colors.textSecondary, marginBottom: 4 },
   daysRow: { flexDirection: 'row', gap: 8 },
   dayChip: {
-    width: 38, height: 38, borderRadius: 10,
-    backgroundColor: Colors.surfaceElevated,
-    alignItems: 'center', justifyContent: 'center',
+    flex: 1, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: Colors.surfaceElevated, alignItems: 'center',
+    borderWidth: 1, borderColor: Colors.border,
   },
   dayChipText: { fontFamily: 'Inter_600SemiBold', fontSize: 12, color: Colors.textSecondary },
-  appSelectorList: {
-    gap: 10,
-    paddingVertical: 4,
-  },
+  appSelectorList: { gap: 10, paddingVertical: 4 },
   appChip: {
     alignItems: 'center',
-    width: 70,
-    gap: 6,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surfaceElevated,
+    width: 72,
     paddingVertical: 10,
-    paddingHorizontal: 6,
+    borderRadius: 14,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 6,
     position: 'relative',
   },
   appChipIcon: {
@@ -653,23 +720,46 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: Colors.textSecondary,
     textAlign: 'center',
+    paddingHorizontal: 4,
   },
   appChipCheck: {
     position: 'absolute',
     top: 6,
     right: 6,
-    width: 15,
-    height: 15,
-    borderRadius: 8,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  colorRow: { flexDirection: 'row', gap: 10 },
+  addAppChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: Colors.accentMuted,
+    borderWidth: 1,
+    borderColor: Colors.accent + '44',
+    borderStyle: 'dashed',
+    alignSelf: 'flex-start',
+  },
+  addAppChipText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: Colors.accent,
+  },
+  colorRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
   colorChip: { width: 32, height: 32, borderRadius: 16 },
   colorChipSelected: { borderWidth: 3, borderColor: Colors.text },
   saveBtn: {
-    backgroundColor: Colors.accent, borderRadius: 14,
-    paddingVertical: 16, alignItems: 'center', marginBottom: 8,
+    backgroundColor: Colors.accent,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
   },
   saveBtnText: { fontFamily: 'Inter_700Bold', fontSize: 16, color: Colors.background },
 });
