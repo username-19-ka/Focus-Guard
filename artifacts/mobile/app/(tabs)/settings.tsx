@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useActiveChallenge } from '@/store/activeChallengeStore';
+import { useBankedMinutes } from '@/store/bankedMinutesStore';
 import Colors from '@/constants/colors';
 import AppPickerModal, { type PickableApp } from '@/components/AppPickerModal';
 import { useMonitoredAppsStore } from '@/store/monitoredAppsStore';
@@ -26,13 +27,11 @@ type AppConfig = {
   enabled: boolean;
   expanded: boolean;
   lockDuration: number;
-  unlockGoals: number;
-  unlockTimeLimit: number;
+  unlockDuration: number;
 };
 
-const DURATION_OPTIONS = [5, 10, 15, 30, 60];
-const GOAL_OPTIONS = [1, 2, 3, 5, 10];
-const TIME_LIMIT_OPTIONS = [15, 30, 45, 60, 90, 120];
+const LOCK_OPTIONS    = [5, 10, 15, 30, 60, 120];
+const UNLOCK_OPTIONS  = [5, 10, 15, 30, 60];
 
 
 
@@ -52,7 +51,7 @@ function PickerRow({ label, value, options, onChange }: {
         <Pressable onPress={() => cycle(-1)} hitSlop={8}>
           <Feather name="minus-circle" size={20} color={Colors.textSecondary} />
         </Pressable>
-        <Text style={styles.pickerValue}>{value}{label.includes('Goals') ? '' : 'm'}</Text>
+        <Text style={styles.pickerValue}>{value}m</Text>
         <Pressable onPress={() => cycle(1)} hitSlop={8}>
           <Feather name="plus-circle" size={20} color={Colors.accent} />
         </Pressable>
@@ -61,12 +60,14 @@ function PickerRow({ label, value, options, onChange }: {
   );
 }
 
-function AppCard({ app, onToggle, onExpand, onUpdate, onDelete }: {
+function AppCard({ app, onToggle, onExpand, onUpdate, onDelete, isChallengeActive, bankedMinutes }: {
   app: AppConfig;
   onToggle: () => void;
   onExpand: () => void;
   onUpdate: (field: keyof AppConfig, val: any) => void;
   onDelete: () => void;
+  isChallengeActive: boolean;
+  bankedMinutes: number;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const chevronRotation = useRef(new Animated.Value(app.expanded ? 180 : 0)).current;
@@ -134,11 +135,42 @@ function AppCard({ app, onToggle, onExpand, onUpdate, onDelete }: {
       {app.expanded && !confirmDelete && (
         <View style={styles.expansionPanel}>
           <View style={styles.expansionDivider} />
-          <PickerRow label="Lock Duration" value={app.lockDuration} options={DURATION_OPTIONS} onChange={v => onUpdate('lockDuration', v)} />
-          <View style={styles.internalDivider} />
-          <PickerRow label="Unlock Goals" value={app.unlockGoals} options={GOAL_OPTIONS} onChange={v => onUpdate('unlockGoals', v)} />
-          <View style={styles.internalDivider} />
-          <PickerRow label="Unlock Time Limit" value={app.unlockTimeLimit} options={TIME_LIMIT_OPTIONS} onChange={v => onUpdate('unlockTimeLimit', v)} />
+
+          {isChallengeActive ? (
+            /* ── Challenge active: app unlocks via banked minutes ── */
+            <View style={styles.challengeModeInfo}>
+              <View style={styles.challengeModeIconRow}>
+                <Feather name="zap" size={16} color={Colors.accent} />
+                <Text style={styles.challengeModeTitle}>Challenge Mode Active</Text>
+              </View>
+              <Text style={styles.challengeModeDesc}>
+                This app unlocks using your banked challenge minutes. Complete reps to earn access.
+              </Text>
+              <View style={styles.bankedBadge}>
+                <Feather name="clock" size={13} color={Colors.accent} />
+                <Text style={styles.bankedBadgeText}>
+                  {bankedMinutes.toFixed(1)} min banked
+                </Text>
+              </View>
+            </View>
+          ) : (
+            /* ── No challenge: show lock / unlock duration pickers ── */
+            <>
+              <PickerRow
+                label="Lock Duration"
+                value={app.lockDuration}
+                options={LOCK_OPTIONS}
+                onChange={v => onUpdate('lockDuration', v)}
+              />
+              <View style={styles.internalDivider} />
+              <PickerRow
+                label="Unlock Duration"
+                value={app.unlockDuration}
+                options={UNLOCK_OPTIONS}
+                onChange={v => onUpdate('unlockDuration', v)}
+              />
+            </>
+          )}
         </View>
       )}
     </View>
@@ -152,6 +184,7 @@ export default function SettingsScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const activeChallenge = useActiveChallenge(s => s.challenge);
   const isChallengeActive = !!activeChallenge;
+  const bankedMinutes = useBankedMinutes(s => s.bankedMinutes);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const monitoredStore = useMonitoredAppsStore();
@@ -221,8 +254,7 @@ export default function SettingsScreen() {
       enabled: true,
       expanded: false,
       lockDuration: 30,
-      unlockGoals: 3,
-      unlockTimeLimit: 60,
+      unlockDuration: 15,
     };
     save([...apps, newApp]);
     monitoredStore.addApp({ packageName: pickable.packageName, name: pickable.name, isSystemApp: pickable.isSystemApp, addedAt: Date.now() });
@@ -245,7 +277,7 @@ export default function SettingsScreen() {
         </View>
 
         <Text style={styles.pageDesc}>
-          Toggle apps to block them when limits are hit. Expand to configure lock duration, unlock goals, and time limits.
+          Toggle apps to monitor and block. Expand to set lock and unlock durations — or earn access via challenge minutes when a challenge is active.
         </Text>
 
         {apps.length === 0 ? (
@@ -268,6 +300,8 @@ export default function SettingsScreen() {
                   onExpand={() => expand(app.id)}
                   onUpdate={(field, val) => update(app.id, field, val)}
                   onDelete={() => deleteApp(app.id)}
+                  isChallengeActive={isChallengeActive}
+                  bankedMinutes={bankedMinutes}
                 />
               ))}
             </View>
@@ -462,6 +496,48 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: Colors.borderSubtle,
     marginHorizontal: 16,
+  },
+  challengeModeInfo: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    backgroundColor: Colors.accent + '12',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.accent + '33',
+    padding: 14,
+    gap: 8,
+  },
+  challengeModeIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  challengeModeTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: Colors.accent,
+  },
+  challengeModeDesc: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  bankedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.accent + '22',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  bankedBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.accent,
   },
   addAppBtn: {
     flexDirection: 'row',
