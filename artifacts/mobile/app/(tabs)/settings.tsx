@@ -158,9 +158,17 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     monitoredStore.load();
-    AsyncStorage.getItem('appConfigs').then(v => {
-      if (v) {
-        try { setApps(JSON.parse(v)); } catch {}
+    const MIGRATION_KEY = '@focusguard_app_configs_v2';
+    AsyncStorage.getItem(MIGRATION_KEY).then(async (migrated) => {
+      if (!migrated) {
+        await AsyncStorage.removeItem('appConfigs');
+        await AsyncStorage.setItem(MIGRATION_KEY, '1');
+        setApps([]);
+      } else {
+        const v = await AsyncStorage.getItem('appConfigs');
+        if (v) {
+          try { setApps(JSON.parse(v)); } catch {}
+        }
       }
     });
   }, []);
