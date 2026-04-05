@@ -672,12 +672,10 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: '#000',
     overflow: 'hidden',
-    borderRadius: 16,
   },
   nativeCameraWrap: {
     flex: 1,
     width: '100%',
-    borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#000',
   },

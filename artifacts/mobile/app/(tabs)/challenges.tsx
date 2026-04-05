@@ -1046,6 +1046,8 @@ function SessionView({ challenge, reps, repsPerUnit, minsPerUnit, phaseText, onR
   const earned = Math.floor(reps / repsPerUnit) * minsPerUnit;
   return (
     <View style={styles.sessionContainer}>
+      <PoseTracker exercise={challenge.id === 'squat' ? 'squat' : 'pushup'} active onRep={onRep} onPhaseChange={onPhaseChange} />
+
       <View style={styles.sessionTopBar}>
         <Pressable onPress={onDone} style={styles.giveUpBtn}>
           <Feather name="check" size={14} color={Colors.accent} />
@@ -1053,9 +1055,10 @@ function SessionView({ challenge, reps, repsPerUnit, minsPerUnit, phaseText, onR
         </Pressable>
         <Text style={[styles.sessionLabel, { color: challenge.color }]}>{challenge.label}</Text>
       </View>
+
       <View style={styles.repRingWrap}>
         <Svg width={130} height={130} viewBox="0 0 130 130">
-          <Circle cx={65} cy={65} r={RING_R} stroke={Colors.border} strokeWidth={8} fill="none" />
+          <Circle cx={65} cy={65} r={RING_R} stroke="rgba(255,255,255,0.2)" strokeWidth={8} fill="none" />
           <Circle cx={65} cy={65} r={RING_R} stroke={challenge.color} strokeWidth={8} fill="none"
             strokeDasharray={RING_C} strokeDashoffset={strokeOffset}
             strokeLinecap="round" transform="rotate(-90, 65, 65)" />
@@ -1065,15 +1068,13 @@ function SessionView({ challenge, reps, repsPerUnit, minsPerUnit, phaseText, onR
           <Text style={styles.repTarget}>reps</Text>
         </View>
       </View>
+
       {earned > 0 && (
         <View style={styles.earnedChip}>
           <Feather name="zap" size={13} color={challenge.color} />
           <Text style={[styles.earnedChipText, { color: challenge.color }]}>{earned} min earned so far</Text>
         </View>
       )}
-      <View style={styles.trackerWrap}>
-        <PoseTracker exercise={challenge.id === 'squat' ? 'squat' : 'pushup'} active onRep={onRep} onPhaseChange={onPhaseChange} />
-      </View>
     </View>
   );
 }
@@ -1290,16 +1291,47 @@ const styles = StyleSheet.create({
   barChartLabel: { fontFamily: 'Inter_400Regular', fontSize: 11, color: Colors.textTertiary, width: 28, textAlign: 'right' },
 
   // Session
-  sessionContainer: { flex: 1, paddingHorizontal: 16 },
-  sessionTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
+  sessionContainer: { flex: 1, position: 'relative', backgroundColor: '#000' },
+  sessionTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
   giveUpBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 8, backgroundColor: Colors.surface, borderRadius: 8 },
   giveUpText: { fontFamily: 'Inter_500Medium', fontSize: 13, color: Colors.textTertiary },
   sessionLabel: { fontFamily: 'Inter_700Bold', fontSize: 15 },
-  repRingWrap: { alignItems: 'center', marginVertical: 12, position: 'relative' },
+  repRingWrap: {
+    position: 'absolute',
+    bottom: 80,
+    alignSelf: 'center',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 10,
+  },
   repOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  repCount: { fontFamily: 'Inter_700Bold', fontSize: 32, color: Colors.text },
-  repTarget: { fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textSecondary },
-  earnedChip: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', backgroundColor: Colors.surfaceElevated, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 8 },
+  repCount: { fontFamily: 'Inter_700Bold', fontSize: 36, color: '#FFFFFF' },
+  repTarget: { fontFamily: 'Inter_400Regular', fontSize: 14, color: 'rgba(255,255,255,0.75)' },
+  earnedChip: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    zIndex: 10,
+  },
   earnedChipText: { fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   trackerWrap: { flex: 1, borderRadius: 16, overflow: 'hidden', backgroundColor: Colors.surface },
 
