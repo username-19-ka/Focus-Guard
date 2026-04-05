@@ -43,7 +43,15 @@
           "origin": "https://replit.com/"
         }
       ],
-      "expo-camera",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FocusGuard uses the camera to count your exercise reps using pose detection.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-av",
       "expo-font",
       "expo-web-browser",
       [
