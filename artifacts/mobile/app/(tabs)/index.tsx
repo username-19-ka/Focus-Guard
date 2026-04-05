@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useDashboardStore, MappedApp } from '@/store/dashboardStore';
+import { openUsageAccessSettings } from '@/lib/UsageStatsService';
 import { useBankedMinutes } from '@/store/bankedMinutesStore';
 import { useActiveChallenge } from '@/store/activeChallengeStore';
 import FocusRing from '@/components/FocusRing';
@@ -119,21 +120,27 @@ function BankedTimeCard() {
 
 function WeeklySection() {
   const { weeklyData, weekLabels, timeSavedMinutes } = useDashboardStore();
-  const totalWeekMins = weeklyData.reduce((a, b) => a + b, 0) + timeSavedMinutes;
+  const chartData = [...weeklyData.slice(0, 6), timeSavedMinutes];
+  const totalWeekMins = chartData.reduce((a, b) => a + b, 0);
+  const hasData = totalWeekMins > 0;
 
   return (
     <View style={styles.weekCard}>
       <View style={styles.weekHeader}>
         <View>
           <Text style={styles.sectionTitle}>Weekly Activity</Text>
-          <Text style={styles.weekSubtitle}>{minutesToDisplay(totalWeekMins)} saved this week</Text>
-        </View>
-        <View style={styles.weekBadge}>
-          <Feather name="trending-up" size={13} color={Colors.accent} />
-          <Text style={styles.weekBadgeText}>+12%</Text>
+          <Text style={styles.weekSubtitle}>
+            {hasData ? `${minutesToDisplay(totalWeekMins)} saved this week` : 'No data yet this week'}
+          </Text>
         </View>
       </View>
-      <WeeklyBarChart data={[...weeklyData.slice(0, 6), timeSavedMinutes]} labels={weekLabels} height={90} />
+      {hasData ? (
+        <WeeklyBarChart data={chartData} labels={weekLabels} height={90} />
+      ) : (
+        <View style={styles.weekEmptyWrap}>
+          <Text style={styles.weekEmptyText}>Data appears once FocusGuard tracks your usage</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -277,13 +284,35 @@ export default function DashboardScreen() {
       </View>
 
       {topApps.length === 0 && !isLoadingUsage ? (
-        <View style={styles.noDataCard}>
-          <Feather name="clock" size={32} color={Colors.textTertiary} />
-          <Text style={styles.noDataTitle}>No Usage Data Yet</Text>
-          <Text style={styles.noDataDesc}>
-            Use your device normally — app usage will appear here after FocusGuard detects activity.
-          </Text>
-        </View>
+        !usagePermissionGranted ? (
+          <View style={styles.permCard}>
+            <View style={styles.permIconWrap}>
+              <Feather name="shield-off" size={28} color={Colors.warning} />
+            </View>
+            <Text style={styles.permTitle}>Usage Access Required</Text>
+            <Text style={styles.permDesc}>
+              FocusGuard needs Usage Access permission to track your app usage and calculate your Focus Ratio, Time Saved, and Streaks.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.permBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                openUsageAccessSettings();
+              }}
+            >
+              <Feather name="external-link" size={16} color={Colors.background} />
+              <Text style={styles.permBtnText}>Allow Access</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.noDataCard}>
+            <Feather name="clock" size={32} color={Colors.textTertiary} />
+            <Text style={styles.noDataTitle}>No Usage Data Yet</Text>
+            <Text style={styles.noDataDesc}>
+              Use your device normally — app usage will appear here after FocusGuard detects activity.
+            </Text>
+          </View>
+        )
       ) : (
         <View style={styles.appsCard}>
           {topApps.map((app, i) => (
@@ -588,4 +617,66 @@ const styles = StyleSheet.create({
   bankedRight: { alignItems: 'flex-end' },
   bankedValue: { fontFamily: 'Inter_700Bold', fontSize: 24, color: Colors.accent },
   bankedSession: { fontFamily: 'Inter_600SemiBold', fontSize: 11, color: Colors.accent + 'BB', marginTop: 2 },
+
+  weekEmptyWrap: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  weekEmptyText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: Colors.textTertiary,
+    textAlign: 'center',
+  },
+
+  permCard: {
+    marginHorizontal: 20,
+    marginBottom: 10,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.warning + '44',
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    alignItems: 'center',
+    gap: 10,
+  },
+  permIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: Colors.warning + '18',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  permTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 16,
+    color: Colors.text,
+    textAlign: 'center',
+  },
+  permDesc: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  permBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.accent,
+    borderRadius: 13,
+    paddingVertical: 13,
+    paddingHorizontal: 28,
+    marginTop: 4,
+  },
+  permBtnText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 14,
+    color: Colors.background,
+  },
 });

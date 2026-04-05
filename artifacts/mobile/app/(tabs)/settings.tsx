@@ -34,14 +34,6 @@ const DURATION_OPTIONS = [5, 10, 15, 30, 60];
 const GOAL_OPTIONS = [1, 2, 3, 5, 10];
 const TIME_LIMIT_OPTIONS = [15, 30, 45, 60, 90, 120];
 
-const DEFAULT_APPS: AppConfig[] = [
-  { id: 'instagram', name: 'Instagram', icon: 'logo-instagram', color: '#E1306C', enabled: true, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 60 },
-  { id: 'tiktok', name: 'TikTok', icon: 'play-circle', color: '#69C9D0', enabled: true, expanded: false, lockDuration: 15, unlockGoals: 2, unlockTimeLimit: 30 },
-  { id: 'twitter', name: 'Twitter', icon: 'logo-twitter', color: '#1DA1F2', enabled: false, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 45 },
-  { id: 'youtube', name: 'YouTube', icon: 'logo-youtube', color: '#FF0000', enabled: true, expanded: false, lockDuration: 60, unlockGoals: 5, unlockTimeLimit: 90 },
-  { id: 'reddit', name: 'Reddit', icon: 'logo-reddit', color: '#FF4500', enabled: false, expanded: false, lockDuration: 30, unlockGoals: 2, unlockTimeLimit: 60 },
-  { id: 'facebook', name: 'Facebook', icon: 'logo-facebook', color: '#1877F2', enabled: false, expanded: false, lockDuration: 30, unlockGoals: 3, unlockTimeLimit: 60 },
-];
 
 
 function PickerRow({ label, value, options, onChange }: {
@@ -156,7 +148,7 @@ function AppCard({ app, onToggle, onExpand, onUpdate, onDelete }: {
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const [apps, setApps] = useState<AppConfig[]>(DEFAULT_APPS);
+  const [apps, setApps] = useState<AppConfig[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const activeChallenge = useActiveChallenge(s => s.challenge);
   const isChallengeActive = !!activeChallenge;
@@ -248,26 +240,39 @@ export default function SettingsScreen() {
           Toggle apps to block them when limits are hit. Expand to configure lock duration, unlock goals, and time limits.
         </Text>
 
-        <View style={styles.appList}>
-          {apps.map(app => (
-            <AppCard
-              key={app.id}
-              app={app}
-              onToggle={() => toggle(app.id)}
-              onExpand={() => expand(app.id)}
-              onUpdate={(field, val) => update(app.id, field, val)}
-              onDelete={() => deleteApp(app.id)}
-            />
-          ))}
-        </View>
+        {apps.length === 0 ? (
+          <Pressable
+            style={({ pressed }) => [styles.emptyAppsCard, pressed && { opacity: 0.8 }]}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowAddModal(true); }}
+          >
+            <Feather name="plus-circle" size={32} color={Colors.accent} />
+            <Text style={styles.emptyAppsTitle}>No apps configured yet</Text>
+            <Text style={styles.emptyAppsDesc}>Tap to add your first app to monitor and block.</Text>
+          </Pressable>
+        ) : (
+          <>
+            <View style={styles.appList}>
+              {apps.map(app => (
+                <AppCard
+                  key={app.id}
+                  app={app}
+                  onToggle={() => toggle(app.id)}
+                  onExpand={() => expand(app.id)}
+                  onUpdate={(field, val) => update(app.id, field, val)}
+                  onDelete={() => deleteApp(app.id)}
+                />
+              ))}
+            </View>
 
-        <Pressable
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowAddModal(true); }}
-          style={({ pressed }) => [styles.addAppBtn, pressed && { opacity: 0.8 }]}
-        >
-          <Feather name="plus-circle" size={20} color={Colors.accent} />
-          <Text style={styles.addAppBtnText}>Add an App</Text>
-        </Pressable>
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowAddModal(true); }}
+              style={({ pressed }) => [styles.addAppBtn, pressed && { opacity: 0.8 }]}
+            >
+              <Feather name="plus-circle" size={20} color={Colors.accent} />
+              <Text style={styles.addAppBtnText}>Add an App</Text>
+            </Pressable>
+          </>
+        )}
       </ScrollView>
 
       <AppPickerModal
@@ -468,6 +473,30 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     fontSize: 15,
     color: Colors.accent,
+  },
+  emptyAppsCard: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    backgroundColor: Colors.accentMuted,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.accent + '44',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    gap: 10,
+  },
+  emptyAppsTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    color: Colors.text,
+  },
+  emptyAppsDesc: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
 
   // Add App Modal
