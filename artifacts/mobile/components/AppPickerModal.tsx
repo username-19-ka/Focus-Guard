@@ -37,34 +37,15 @@ interface AppPickerModalProps {
   onClose: () => void;
 }
 
-const FALLBACK_APPS: PickableApp[] = [
-  { packageName: 'com.instagram.android',      name: 'Instagram',    isSystemApp: false },
-  { packageName: 'com.zhiliaoapp.musically',   name: 'TikTok',       isSystemApp: false },
-  { packageName: 'com.twitter.android',        name: 'X (Twitter)',   isSystemApp: false },
-  { packageName: 'com.google.android.youtube', name: 'YouTube',      isSystemApp: false },
-  { packageName: 'com.reddit.frontpage',       name: 'Reddit',       isSystemApp: false },
-  { packageName: 'com.facebook.katana',        name: 'Facebook',     isSystemApp: false },
-  { packageName: 'com.snapchat.android',       name: 'Snapchat',     isSystemApp: false },
-  { packageName: 'com.pinterest',              name: 'Pinterest',    isSystemApp: false },
-  { packageName: 'com.linkedin.android',       name: 'LinkedIn',     isSystemApp: false },
-  { packageName: 'com.discord',                name: 'Discord',      isSystemApp: false },
-  { packageName: 'com.twitch.android.app',     name: 'Twitch',       isSystemApp: false },
-  { packageName: 'com.whatsapp',               name: 'WhatsApp',     isSystemApp: false },
-  { packageName: 'com.netflix.mediaclient',    name: 'Netflix',      isSystemApp: false },
-  { packageName: 'com.spotify.music',          name: 'Spotify',      isSystemApp: false },
-  { packageName: 'org.telegram.messenger',     name: 'Telegram',     isSystemApp: false },
-  { packageName: 'com.tinder',                 name: 'Tinder',       isSystemApp: false },
-];
-
 async function loadInstalledApps(): Promise<PickableApp[]> {
-  if (Platform.OS !== 'android') return FALLBACK_APPS;
+  if (Platform.OS !== 'android') return [];
   try {
     const { getInstalledApps } = require('@focusguard/app-tracking');
     const apps = await getInstalledApps();
     if (Array.isArray(apps) && apps.length > 0) return apps as PickableApp[];
-    return FALLBACK_APPS;
+    return [];
   } catch {
-    return FALLBACK_APPS;
+    return [];
   }
 }
 
@@ -189,14 +170,20 @@ export default function AppPickerModal({
           </View>
         ) : filtered.length === 0 ? (
           <View style={styles.emptyState}>
-            <Feather name="inbox" size={40} color={Colors.textTertiary} />
+            <Feather name={Platform.OS !== 'android' ? 'smartphone' : 'inbox'} size={40} color={Colors.textTertiary} />
             <Text style={styles.emptyTitle}>
-              {search ? 'No results' : 'All apps added'}
+              {Platform.OS !== 'android'
+                ? 'Android Only'
+                : search
+                  ? 'No results'
+                  : 'All apps added'}
             </Text>
             <Text style={styles.emptyDesc}>
-              {search
-                ? `No apps match "${search}"`
-                : 'You are already monitoring all available apps.'}
+              {Platform.OS !== 'android'
+                ? 'App detection requires a real Android device. Install the APK to browse and add your installed apps.'
+                : search
+                  ? `No apps match "${search}"`
+                  : 'You are already monitoring all available apps.'}
             </Text>
           </View>
         ) : (
