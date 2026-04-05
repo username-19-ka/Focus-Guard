@@ -1,0 +1,41 @@
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/expo-dev-menu/android/src/release/java/expo/modules/devmenu/DevMenuManager.kt:80:43 The corresponding parameter in the supertype 'DevMenuManagerInterface' is named 'shouldAutoLaunch'. This may cause problems when calling this function with named arguments.
+[Incubating] Problems report is available at: file:///home/expo/workingdir/build/artifacts/mobile/android/build/reports/problems/problems-report.html
+FAILURE: Build failed with an exception.
+* What went wrong:
+Execution failed for task ':expo-gl:compileReleaseJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  Note: /home/expo/workingdir/build/artifacts/mobile/node_modules/expo-gl/android/src/main/java/expo/modules/gl/GLContext.java uses or overrides a deprecated API.
+  Note: Recompile with -Xlint:deprecation for details.
+  Note: /home/expo/workingdir/build/artifacts/mobile/node_modules/expo-gl/android/src/main/java/expo/modules/gl/GLContext.java uses unchecked or unsafe operations.
+  /home/expo/workingdir/build/artifacts/mobile/node_modules/expo-gl/android/src/main/java/expo/modules/gl/GLContext.java:32: error: cannot find symbol
+  import expo.modules.core.interfaces.RuntimeEnvironmentInterface;
+                                     ^
+    symbol:   class RuntimeEnvironmentInterface
+    location: package expo.modules.core.interfaces
+  /home/expo/workingdir/build/artifacts/mobile/node_modules/expo-gl/android/src/main/java/expo/modules/gl/GLContext.java:90: error: cannot find symbol
+      final RuntimeEnvironmentInterface environment = moduleRegistry.getModule(RuntimeEnvironmentInterface.class);
+            ^
+    symbol:   class RuntimeEnvironmentInterface
+    location: class GLContext
+  /home/expo/workingdir/build/artifacts/mobile/node_modules/expo-gl/android/src/main/java/expo/modules/gl/GLContext.java:90: error: cannot find symbol
+      final RuntimeEnvironmentInterface environment = moduleRegistry.getModule(RuntimeEnvironmentInterface.class);
+                                                                               ^
+    symbol:   class RuntimeEnvironmentInterface
+    location: class GLContext
+  Note: Recompile with -Xlint:unchecked for details.
+  3 errors
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+BUILD FAILED in 6m 34s
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+584 actionable tasks: 584 executed
+Error: Gradle build failed with unknown error. See logs for the "Run gradlew" phase for more information.
+Fail job
+
+1ms
+
+
+Build failed: Gradle build failed with unknown error. See logs for the "Run gradlew" phase for more information.
