@@ -25,13 +25,6 @@ export interface AppUsageStat {
 const CACHE_KEY = 'usage_stats_cache';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-const MOCK_STATS: AppUsageStat[] = [
-  { packageName: 'com.instagram.android', totalTimeInForegroundMs: 5_220_000, totalTimeMinutes: 87, lastTimeUsed: Date.now() - 300_000 },
-  { packageName: 'com.zhiliaoapp.musically', totalTimeInForegroundMs: 2_700_000, totalTimeMinutes: 45, lastTimeUsed: Date.now() - 1_800_000 },
-  { packageName: 'com.twitter.android', totalTimeInForegroundMs: 1_680_000, totalTimeMinutes: 28, lastTimeUsed: Date.now() - 3_600_000 },
-  { packageName: 'com.google.android.youtube', totalTimeInForegroundMs: 3_720_000, totalTimeMinutes: 62, lastTimeUsed: Date.now() - 7_200_000 },
-  { packageName: 'com.reddit.frontpage', totalTimeInForegroundMs: 1_200_000, totalTimeMinutes: 20, lastTimeUsed: Date.now() - 14_400_000 },
-];
 
 /**
  * Safely returns the native module, or null if not linked (Expo Go / iOS / web).
@@ -58,10 +51,10 @@ function getNativeModule(): Record<string, (...args: any[]) => Promise<any>> | n
 
 /**
  * Performs a real native permission check via AppOpsManager.
- * On non-Android platforms always returns true.
+ * On non-Android platforms returns false (no usage stats available).
  */
 export async function isUsagePermissionGranted(): Promise<boolean> {
-  if (Platform.OS !== 'android') return true;
+  if (Platform.OS !== 'android') return false;
   const mod = getNativeModule();
   if (!mod) return false;
   try {
@@ -103,12 +96,12 @@ export async function openUsageAccessSettings(
  * Falls back to AsyncStorage cache, then static mock data.
  */
 export async function queryLast24hStats(): Promise<AppUsageStat[]> {
-  if (Platform.OS !== 'android') return MOCK_STATS;
+  if (Platform.OS !== 'android') return [];
 
   const mod = getNativeModule();
   if (!mod) {
     const cached = await getCachedStats();
-    return cached ?? MOCK_STATS;
+    return cached ?? [];
   }
 
   const now = Date.now();
@@ -126,7 +119,7 @@ export async function queryLast24hStats(): Promise<AppUsageStat[]> {
   } catch (err) {
     console.warn('[UsageStats] queryLast24hStats error:', err);
     const cached = await getCachedStats();
-    return cached ?? MOCK_STATS;
+    return cached ?? [];
   }
 }
 
