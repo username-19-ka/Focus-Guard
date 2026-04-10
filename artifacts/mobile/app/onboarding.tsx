@@ -198,10 +198,8 @@ function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
     }
 
     // ── Overlay (SYSTEM_ALERT_WINDOW) ─────────────────────────────────────────
-    // Wait 500 ms for the Android OS to settle its internal overlay permission
-    // state before querying the native bridge.  Without this delay the OS may
-    // still report the old (denied) state in the instant after the user flips
-    // the toggle and switches back to the app.
+    // Wait 500 ms for Android to settle its internal overlay state, then do a
+    // hard native check via Settings.canDrawOverlays() — no AsyncStorage flag.
     await new Promise<void>(r => setTimeout(r, 500));
     const overlay = await checkOverlayPermission();
     if (overlay && !overlayGranted) {
@@ -217,7 +215,7 @@ function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
 
   useEffect(() => {
     (async () => {
-      // Use the real native check for usage; AsyncStorage fallback for overlay.
+      // Use native checks for both permissions on mount.
       const [realUsage, overlay] = await Promise.all([
         isUsagePermissionGranted(),
         checkOverlayPermission(),
