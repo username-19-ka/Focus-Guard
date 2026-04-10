@@ -73,7 +73,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
       try { await markUsageGranted(); } catch {}
 
       // checkOverlayPermission() calls Settings.canDrawOverlays() via the
-      // native bridge first; falls back to AsyncStorage in Expo Go / web.
+      // native AppTracking module — no AsyncStorage fallback for this check.
       const overlayOk = await checkOverlayPermission();
       if (!mountedRef.current) return;
 
