@@ -78,6 +78,8 @@ export async function checkUsagePermission(): Promise<boolean> {
 export async function checkOverlayPermission(): Promise<boolean> {
   if (!isAndroid()) return true;
 
+  let nativeModuleUnavailable = false;
+
   try {
     const { hasOverlayPermission } = require('@focusguard/app-tracking');
     const result: boolean = await hasOverlayPermission();
@@ -86,11 +88,30 @@ export async function checkOverlayPermission(): Promise<boolean> {
       AsyncStorage.setItem(STORAGE_KEY_OVERLAY, 'true').catch(() => {});
     }
     return result;
-  } catch {
-    // Native module unavailable — fall back to persisted flag.
+  } catch (err: unknown) {
+    // Only fall back to AsyncStorage when the module is unavailable
+    // (Expo Go, web, or missing native module).  Re-throw any other error
+    // so callers are not silently mis-informed by stale storage state.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes('Cannot find module') ||
+      msg.includes('Invariant Violation') ||
+      msg.includes('TurboModuleRegistry') ||
+      msg.includes('requireNativeModule') ||
+      msg.includes('undefined is not an object')
+    ) {
+      nativeModuleUnavailable = true;
+    } else {
+      throw err;
+    }
+  }
+
+  if (nativeModuleUnavailable) {
     const value = await AsyncStorage.getItem(STORAGE_KEY_OVERLAY);
     return value === 'true';
   }
+
+  return false;
 }
 
 /**
