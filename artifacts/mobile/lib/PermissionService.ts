@@ -31,6 +31,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Linking from 'expo-linking';
 import { AppState, AppStateStatus, Platform } from 'react-native';
+import { hasOverlayPermission as nativeHasOverlayPermission } from '@/modules/app-tracking';
 
 const STORAGE_KEY_USAGE = 'perm_usage_stats_granted';
 const STORAGE_KEY_OVERLAY = 'perm_overlay_granted';
@@ -66,52 +67,27 @@ export async function checkUsagePermission(): Promise<boolean> {
 }
 
 /**
- * Check whether the Overlay (SYSTEM_ALERT_WINDOW) permission is granted.
+ * Hard-check whether the Overlay (SYSTEM_ALERT_WINDOW) permission is granted.
  *
- * Strategy (Android only):
- *   1. Try the real native bridge — Settings.canDrawOverlays() via the
- *      @focusguard/app-tracking NativeModule.  This is accurate in any
- *      custom development build or production APK.
- *   2. Fall back to the AsyncStorage flag for environments where the native
- *      module is unavailable (Expo Go, web).
+ * Calls Settings.canDrawOverlays() via the native AppTracking module.
+ * AsyncStorage is NOT used as a source of truth here — only the live OS state
+ * matters.  If the native module is unavailable (Expo Go, web) the call
+ * returns false so the gate stays open until a real APK build is used.
+ *
+ * A debug log is emitted on every call so the true bridge response is visible
+ * in the Metro / LogBox console.
  */
 export async function checkOverlayPermission(): Promise<boolean> {
   if (!isAndroid()) return true;
 
-  let nativeModuleUnavailable = false;
-
   try {
-    const { hasOverlayPermission } = require('@focusguard/app-tracking');
-    const result: boolean = await hasOverlayPermission();
-    // Keep AsyncStorage in sync so other callers stay consistent.
-    if (result) {
-      AsyncStorage.setItem(STORAGE_KEY_OVERLAY, 'true').catch(() => {});
-    }
+    const result: boolean = await nativeHasOverlayPermission();
+    console.log('[DEBUG] Native Overlay Status:', result);
     return result;
-  } catch (err: unknown) {
-    // Only fall back to AsyncStorage when the module is unavailable
-    // (Expo Go, web, or missing native module).  Re-throw any other error
-    // so callers are not silently mis-informed by stale storage state.
-    const msg = err instanceof Error ? err.message : String(err);
-    if (
-      msg.includes('Cannot find module') ||
-      msg.includes('Invariant Violation') ||
-      msg.includes('TurboModuleRegistry') ||
-      msg.includes('requireNativeModule') ||
-      msg.includes('undefined is not an object')
-    ) {
-      nativeModuleUnavailable = true;
-    } else {
-      throw err;
-    }
+  } catch (err) {
+    console.log('[DEBUG] Native Overlay Status: ERROR —', err);
+    return false;
   }
-
-  if (nativeModuleUnavailable) {
-    const value = await AsyncStorage.getItem(STORAGE_KEY_OVERLAY);
-    return value === 'true';
-  }
-
-  return false;
 }
 
 /**

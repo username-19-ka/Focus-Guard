@@ -198,9 +198,11 @@ function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
     }
 
     // ── Overlay (SYSTEM_ALERT_WINDOW) ─────────────────────────────────────────
-    // checkOverlayPermission() now calls Settings.canDrawOverlays() via the
-    // native bridge first (production APK), falling back to AsyncStorage only
-    // when the native module is unavailable (Expo Go / web).
+    // Wait 500 ms for the Android OS to settle its internal overlay permission
+    // state before querying the native bridge.  Without this delay the OS may
+    // still report the old (denied) state in the instant after the user flips
+    // the toggle and switches back to the app.
+    await new Promise<void>(r => setTimeout(r, 500));
     const overlay = await checkOverlayPermission();
     if (overlay && !overlayGranted) {
       setOverlayGranted(true);
