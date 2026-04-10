@@ -14,7 +14,7 @@
  * Re-checks automatically every time the user returns from Android Settings.
  */
 
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -26,7 +26,11 @@ import {
   Text,
   View,
 } from 'react-native';
-import { markUsageGranted, openOverlaySettings } from '@/lib/PermissionService';
+import {
+  checkOverlayPermission,
+  markUsageGranted,
+  openOverlaySettings,
+} from '@/lib/PermissionService';
 import { isUsagePermissionGranted, openUsageAccessSettings } from '@/lib/UsageStatsService';
 import Colors from '@/constants/colors';
 
@@ -34,15 +38,6 @@ type GateState = 'checking' | 'need_usage' | 'need_overlay' | 'granted';
 
 interface PermissionGateProps {
   children: React.ReactNode;
-}
-
-async function checkOverlayNative(): Promise<boolean> {
-  try {
-    const { hasOverlayPermission } = require('@focusguard/app-tracking');
-    return await hasOverlayPermission();
-  } catch {
-    return false;
-  }
 }
 
 export function PermissionGate({ children }: PermissionGateProps) {
@@ -54,9 +49,17 @@ export function PermissionGate({ children }: PermissionGateProps) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  const check = useCallback(async () => {
+  /**
+   * Full permission check.
+   *
+   * @param silent  When true the gate does NOT flip to the 'checking' spinner
+   *                while running — used by the "Continue" button so the current
+   *                screen stays visible with its own button-level indicator.
+   *                When false (default) the full-screen spinner is shown.
+   */
+  const check = useCallback(async (silent = false) => {
     if (!mountedRef.current) return;
-    setGateState('checking');
+    if (!silent) setGateState('checking');
 
     try {
       const usageOk = await isUsagePermissionGranted();
@@ -69,7 +72,9 @@ export function PermissionGate({ children }: PermissionGateProps) {
 
       try { await markUsageGranted(); } catch {}
 
-      const overlayOk = await checkOverlayNative();
+      // checkOverlayPermission() calls Settings.canDrawOverlays() via the
+      // native bridge first; falls back to AsyncStorage in Expo Go / web.
+      const overlayOk = await checkOverlayPermission();
       if (!mountedRef.current) return;
 
       if (!overlayOk) {
@@ -123,7 +128,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
         }
         primaryLabel="Open Usage Access Settings"
         onPrimary={() => openUsageAccessSettings()}
-        onRecheck={check}
+        onRecheck={() => check(true)}
         steps={[
           'Tap "Open Usage Access Settings" below',
           'Find FocusGuard in the list',
@@ -146,7 +151,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
       }
       primaryLabel="Open Overlay Settings"
       onPrimary={() => openOverlaySettings()}
-      onRecheck={check}
+      onRecheck={() => check(true)}
       steps={[
         'Tap "Open Overlay Settings" below',
         'Find FocusGuard in the list',
@@ -177,9 +182,21 @@ function PermissionScreen({
   description: string;
   primaryLabel: string;
   onPrimary: () => void;
-  onRecheck: () => void;
+  onRecheck: () => Promise<void>;
   steps: string[];
 }) {
+  const [isChecking, setIsChecking] = useState(false);
+
+  const handleContinue = async () => {
+    if (isChecking) return;
+    setIsChecking(true);
+    try {
+      await onRecheck();
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
   return (
     <ScrollView
       style={styles.container}
@@ -212,19 +229,18 @@ function PermissionScreen({
       </Pressable>
 
       <Pressable
-        style={({ pressed }) => [styles.continueBtn, pressed && { opacity: 0.85 }]}
-        onPress={onRecheck}
+        style={[styles.continueBtn, isChecking && styles.continueBtnChecking]}
+        onPress={handleContinue}
+        disabled={isChecking}
       >
-        <Text style={styles.continueBtnText}>Continue</Text>
-        <Feather name="arrow-right" size={17} color={Colors.background} />
-      </Pressable>
-
-      <Pressable
-        style={({ pressed }) => [styles.recheckBtn, pressed && { opacity: 0.75 }]}
-        onPress={onRecheck}
-      >
-        <Feather name="refresh-cw" size={14} color={Colors.textSecondary} />
-        <Text style={styles.recheckBtnText}>Check again</Text>
+        {isChecking ? (
+          <ActivityIndicator size="small" color={Colors.background} />
+        ) : (
+          <>
+            <Text style={styles.continueBtnText}>Continue</Text>
+            <Feather name="arrow-right" size={17} color={Colors.background} />
+          </>
+        )}
       </Pressable>
 
       <View style={styles.stepsCard}>
@@ -344,26 +360,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     width: '100%',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 24,
+  },
+  continueBtnChecking: {
+    opacity: 0.7,
   },
   continueBtnText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 15,
     color: Colors.background,
-  },
-  recheckBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  recheckBtnText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 13,
-    color: Colors.textSecondary,
   },
 
   stepsCard: {

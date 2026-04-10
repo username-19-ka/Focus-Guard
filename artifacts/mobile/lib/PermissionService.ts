@@ -66,16 +66,31 @@ export async function checkUsagePermission(): Promise<boolean> {
 }
 
 /**
- * Check whether the Overlay (SYSTEM_ALERT_WINDOW) permission was previously
- * marked as granted.
+ * Check whether the Overlay (SYSTEM_ALERT_WINDOW) permission is granted.
  *
- * NOTE: Settings.canDrawOverlays() is likewise unavailable in Expo Go JS.
- *       Production builds can call this natively via a NativeModule.
+ * Strategy (Android only):
+ *   1. Try the real native bridge — Settings.canDrawOverlays() via the
+ *      @focusguard/app-tracking NativeModule.  This is accurate in any
+ *      custom development build or production APK.
+ *   2. Fall back to the AsyncStorage flag for environments where the native
+ *      module is unavailable (Expo Go, web).
  */
 export async function checkOverlayPermission(): Promise<boolean> {
   if (!isAndroid()) return true;
-  const value = await AsyncStorage.getItem(STORAGE_KEY_OVERLAY);
-  return value === 'true';
+
+  try {
+    const { hasOverlayPermission } = require('@focusguard/app-tracking');
+    const result: boolean = await hasOverlayPermission();
+    // Keep AsyncStorage in sync so other callers stay consistent.
+    if (result) {
+      AsyncStorage.setItem(STORAGE_KEY_OVERLAY, 'true').catch(() => {});
+    }
+    return result;
+  } catch {
+    // Native module unavailable — fall back to persisted flag.
+    const value = await AsyncStorage.getItem(STORAGE_KEY_OVERLAY);
+    return value === 'true';
+  }
 }
 
 /**

@@ -16,7 +16,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import {
   checkOverlayPermission,
-  markOverlayGranted,
   markUsageGranted,
   openOverlaySettings,
   openUsageAccessSettings,
@@ -199,21 +198,18 @@ function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
     }
 
     // ── Overlay (SYSTEM_ALERT_WINDOW) ─────────────────────────────────────────
-    // No JS-accessible native check exists for canDrawOverlays() in Expo.
-    // We trust the AsyncStorage flag set by markOverlayGranted(); if the user
-    // explicitly came back from the overlay settings page, assume grant.
+    // checkOverlayPermission() now calls Settings.canDrawOverlays() via the
+    // native bridge first (production APK), falling back to AsyncStorage only
+    // when the native module is unavailable (Expo Go / web).
     const overlay = await checkOverlayPermission();
     if (overlay && !overlayGranted) {
       setOverlayGranted(true);
       setOverlayPending(false);
       onPermissionsChange(realUsage || usageGranted, true);
-    } else if (overlayPending && !overlay) {
-      // User was sent to overlay settings and has returned — treat as granted
-      // (best-effort; no native canDrawOverlays() API available in Expo JS).
-      await markOverlayGranted();
-      setOverlayGranted(true);
+    } else if (!overlay && overlayPending) {
+      // User returned from Settings without granting — reset pending state
+      // so they can try again. Do NOT auto-grant.
       setOverlayPending(false);
-      onPermissionsChange(realUsage || usageGranted, true);
     }
   }, [usagePending, overlayPending, usageGranted, overlayGranted, onPermissionsChange]);
 
