@@ -191,6 +191,7 @@ function PermissionScreen({
     if (isChecking) return;
     setIsChecking(true);
     try {
+      await new Promise<void>(r => setTimeout(r, 500));
       await onRecheck();
     } finally {
       setIsChecking(false);
@@ -234,7 +235,10 @@ function PermissionScreen({
         disabled={isChecking}
       >
         {isChecking ? (
-          <ActivityIndicator size="small" color={Colors.background} />
+          <>
+            <ActivityIndicator size="small" color={Colors.background} />
+            <Text style={styles.continueBtnText}>Verifying...</Text>
+          </>
         ) : (
           <>
             <Text style={styles.continueBtnText}>Continue</Text>
