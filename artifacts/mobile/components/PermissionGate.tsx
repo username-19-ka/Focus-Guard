@@ -220,7 +220,7 @@ function PermissionScreen({
     }
   };
 
-  const showEscape = onForceGrant != null && failureCount >= 2;
+  const showEscape = onForceGrant != null && failureCount >= 1;
 
   return (
     <ScrollView
@@ -272,21 +272,20 @@ function PermissionScreen({
       </Pressable>
 
       {showEscape && (
-        <Pressable style={styles.escapeBtn} onPress={onForceGrant}>
-          <Text style={styles.escapeBtnText}>
-            I've already granted this — proceed anyway
-          </Text>
-          <Feather name="chevron-right" size={14} color={Colors.textTertiary} />
-        </Pressable>
-      )}
-
-      {failureCount > 0 && failureCount < 2 && (
-        <View style={styles.retryHint}>
-          <Feather name="alert-circle" size={14} color={Colors.warning} />
-          <Text style={styles.retryHintText}>
-            System check returned negative. Make sure the permission is enabled, then tap Continue again.
-          </Text>
-        </View>
+        <>
+          <View style={styles.retryHint}>
+            <Feather name="alert-circle" size={14} color={Colors.warning} />
+            <Text style={styles.retryHintText}>
+              The system check couldn't confirm the permission — this can happen on some devices. If you've already granted it, tap below to continue.
+            </Text>
+          </View>
+          <Pressable style={styles.escapeBtn} onPress={onForceGrant}>
+            <Text style={styles.escapeBtnText}>
+              I've already granted this — proceed anyway
+            </Text>
+            <Feather name="chevron-right" size={14} color={Colors.textTertiary} />
+          </Pressable>
+        </>
       )}
 
       <View style={styles.stepsCard}>

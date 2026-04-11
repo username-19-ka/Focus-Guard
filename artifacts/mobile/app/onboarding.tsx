@@ -179,6 +179,7 @@ function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
   const [overlayGranted, setOverlayGranted] = useState(false);
   const [usagePending, setUsagePending] = useState(false);
   const [overlayPending, setOverlayPending] = useState(false);
+  const [overlayCheckFailed, setOverlayCheckFailed] = useState(false);
 
   const isAndroid = Platform.OS === 'android';
 
@@ -207,9 +208,11 @@ function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
       setOverlayPending(false);
       onPermissionsChange(realUsage || usageGranted, true);
     } else if (!overlay && overlayPending) {
-      // User returned from Settings without granting — reset pending state
-      // so they can try again. Do NOT auto-grant.
+      // User returned from Settings but the native check still returns false.
+      // This happens on Xiaomi/MIUI where Settings.canDrawOverlays() is bugged.
+      // Mark the check as failed so the bypass option appears in the UI.
       setOverlayPending(false);
+      setOverlayCheckFailed(true);
     }
   }, [usagePending, overlayPending, usageGranted, overlayGranted, onPermissionsChange]);
 
@@ -286,7 +289,26 @@ function PagePermissions({ onPermissionsChange }: PagePermissionsProps) {
         />
       </View>
 
-      {(!usageGranted || !overlayGranted) && isAndroid && (
+      {overlayCheckFailed && !overlayGranted && isAndroid && (
+        <View style={styles.overlayBypassCard}>
+          <Feather name="alert-circle" size={14} color={Colors.warning} />
+          <Text style={styles.overlayBypassText}>
+            The system check couldn't confirm this permission — this can happen on some devices.
+          </Text>
+          <Pressable
+            style={styles.overlayBypassBtn}
+            onPress={() => {
+              setOverlayGranted(true);
+              setOverlayCheckFailed(false);
+              onPermissionsChange(usageGranted, true);
+            }}
+          >
+            <Text style={styles.overlayBypassBtnText}>I've already granted it — continue</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {(!usageGranted || !overlayGranted) && isAndroid && !overlayCheckFailed && (
         <View style={styles.hintRow}>
           <Feather name="alert-circle" size={13} color={Colors.textTertiary} />
           <Text style={styles.hintText}>
@@ -591,6 +613,34 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     flex: 1,
     lineHeight: 20,
+  },
+  overlayBypassCard: {
+    marginTop: 14,
+    backgroundColor: Colors.warningMuted,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 8,
+    alignItems: 'flex-start',
+  },
+  overlayBypassText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.warning,
+    lineHeight: 18,
+  },
+  overlayBypassBtn: {
+    alignSelf: 'stretch',
+    backgroundColor: Colors.warning,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  overlayBypassBtnText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: Colors.background,
   },
   footer: {
     paddingHorizontal: 28,
