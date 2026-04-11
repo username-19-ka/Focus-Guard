@@ -1,16 +1,39 @@
 /**
- * PermissionGate — shows informational permission screens for both required
- * Android permissions, but never blocks on verification.  The user can open
- * the relevant Settings page, grant the permission, then tap Continue at any
- * time to proceed into the app.
+ * PermissionGate
  *
- * On iOS and web both screens are skipped entirely.
+ * Hard-blocks the tabs until both required Android permissions are confirmed
+ * granted by the native OS, then initialises the user's Supabase profile.
+ *
+ * Flow:
+ *   1. On mount — check Supabase: if permissions_verified=true for this
+ *      account, skip the gate entirely (returning user, previously verified).
+ *   2. Usage Access screen — user opens Settings, grants, returns.
+ *        AppState fires (500 ms settle delay) → native re-check → auto-advance.
+ *        Tapping Continue also triggers the native check. If denied → error.
+ *   3. Overlay screen — same pattern as step 2.
+ *        On success → initializeProfile() (fetch usage data, upsert Supabase,
+ *        write AsyncStorage config) → enter the app.
+ *
+ * Error states:
+ *   If a native check returns false the user sees:
+ *     "Data sync failed. Please ensure permission is granted so we can
+ *      set up your focus profile."
+ *   with a Retry button and the Settings shortcut still visible.
+ *
+ * Reliability:
+ *   • All native calls are raced against a 10 s timeout.
+ *   • AppState fires a re-check with a 500 ms delay (Android settings DB
+ *     settle time) each time the app returns from background.
+ *   • If both native checks pass but Supabase write fails the user is still
+ *     let in — local data always works without the cloud write.
  */
 
 import { Feather } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
+  AppStateStatus,
   Platform,
   Pressable,
   ScrollView,
@@ -18,37 +41,77 @@ import {
   Text,
   View,
 } from 'react-native';
-import { openOverlaySettings } from '@/lib/PermissionService';
-import { openUsageAccessSettings } from '@/lib/UsageStatsService';
+import { checkOverlayPermission, openOverlaySettings } from '@/lib/PermissionService';
+import { isUsagePermissionGranted, openUsageAccessSettings } from '@/lib/UsageStatsService';
+import { checkPermissionsAlreadyVerified, initializeProfile } from '@/lib/ProfileInitService';
 import Colors from '@/constants/colors';
 
-type Step = 'checking' | 'usage' | 'overlay' | 'done';
+type GateStep =
+  | 'loading'      // initial Supabase check
+  | 'usage'        // step 1: usage access
+  | 'overlay'      // step 2: overlay
+  | 'syncing'      // profile initialisation in progress
+  | 'done';        // both granted + profile initialised
 
 interface PermissionGateProps {
   children: React.ReactNode;
 }
 
-export function PermissionGate({ children }: PermissionGateProps) {
-  const [step, setStep] = useState<Step>('checking');
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms),
+    ),
+  ]);
+}
 
+export function PermissionGate({ children }: PermissionGateProps) {
+  const [step, setStep] = useState<GateStep>('loading');
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // ─── Boot: check if this account already verified permissions ───────────────
   useEffect(() => {
     if (Platform.OS !== 'android') {
       setStep('done');
       return;
     }
-    // Brief pause so the splash has time to hide before showing the first screen
-    const t = setTimeout(() => setStep('usage'), 300);
-    return () => clearTimeout(t);
+
+    (async () => {
+      try {
+        const alreadyVerified = await withTimeout(checkPermissionsAlreadyVerified(), 8_000);
+        if (!mountedRef.current) return;
+        setStep(alreadyVerified ? 'done' : 'usage');
+      } catch {
+        if (mountedRef.current) setStep('usage');
+      }
+    })();
   }, []);
 
   if (Platform.OS !== 'android' || step === 'done') {
     return <>{children}</>;
   }
 
-  if (step === 'checking') {
+  if (step === 'loading') {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={Colors.accent} size="large" />
+        <Text style={styles.loadingText}>Setting up your profile…</Text>
+      </View>
+    );
+  }
+
+  if (step === 'syncing') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={Colors.accent} size="large" />
+        <Text style={styles.loadingText}>Syncing your focus profile…</Text>
+        <Text style={styles.loadingSubtext}>Fetching app usage data</Text>
       </View>
     );
   }
@@ -56,74 +119,140 @@ export function PermissionGate({ children }: PermissionGateProps) {
   if (step === 'usage') {
     return (
       <PermissionScreen
+        stepNum={1}
         icon="bar-chart-2"
         iconColor={Colors.warning}
         iconBg={Colors.warningMuted}
-        stepNum={1}
         title="Usage Access Required"
         description={
-          'FocusGuard needs Android\'s "Usage Access" permission to see which apps you\'re using and for how long.\n\nTap the button below, find FocusGuard in the list, and enable "Permit usage access".'
+          'FocusGuard needs Android\'s "Usage Access" permission to track which apps you\'re using and sync real data to your focus profile.\n\nWithout this, no usage stats can be collected.'
         }
         openLabel="Open Usage Access Settings"
         onOpen={() => openUsageAccessSettings()}
-        onContinue={() => setStep('overlay')}
+        onContinue={async () => {
+          await new Promise<void>(r => setTimeout(r, 500));
+          return withTimeout(isUsagePermissionGranted(), 10_000);
+        }}
+        onGranted={() => mountedRef.current && setStep('overlay')}
+        errorMessage="Data sync failed. Please ensure the Usage Access permission is granted so we can set up your focus profile."
         steps={[
           'Tap "Open Usage Access Settings" below',
           'Find FocusGuard in the list',
           'Toggle "Permit usage access" ON',
-          'Return here and tap Continue',
+          'Return here — the app detects it automatically',
         ]}
+        mountedRef={mountedRef}
       />
     );
   }
 
-  // overlay step
+  // step === 'overlay'
   return (
     <PermissionScreen
+      stepNum={2}
       icon="layers"
       iconColor={Colors.accent}
       iconBg={Colors.accentMuted}
-      stepNum={2}
       title="Overlay Permission Required"
       description={
-        'FocusGuard needs the "Display Over Other Apps" permission to show a blocking screen when you open a restricted app.\n\nTap the button below, find FocusGuard, and enable the toggle.'
+        'FocusGuard needs the "Display Over Other Apps" permission to show a blocking screen when you open a restricted app.\n\nThis data is synced to your focus profile on Supabase.'
       }
       openLabel="Open Overlay Settings"
       onOpen={() => openOverlaySettings()}
-      onContinue={() => setStep('done')}
+      onContinue={async () => {
+        await new Promise<void>(r => setTimeout(r, 500));
+        return withTimeout(checkOverlayPermission(), 10_000);
+      }}
+      onGranted={async () => {
+        if (!mountedRef.current) return;
+        setStep('syncing');
+        await initializeProfile();
+        if (mountedRef.current) setStep('done');
+      }}
+      errorMessage="Data sync failed. Please ensure the Overlay permission is granted so we can set up your focus profile."
       steps={[
         'Tap "Open Overlay Settings" below',
         'Find FocusGuard in the list',
         'Toggle "Allow display over other apps" ON',
-        'Return here and tap Continue',
+        'Return here — the app detects it automatically',
       ]}
+      mountedRef={mountedRef}
     />
   );
 }
 
+// ─── PermissionScreen ─────────────────────────────────────────────────────────
+
+interface PermissionScreenProps {
+  stepNum: number;
+  icon: React.ComponentProps<typeof Feather>['name'];
+  iconColor: string;
+  iconBg: string;
+  title: string;
+  description: string;
+  openLabel: string;
+  onOpen: () => void;
+  /** Called when user taps Continue. Must resolve to boolean (granted?). */
+  onContinue: () => Promise<boolean>;
+  /** Called when onContinue returns true. May be async (e.g. Supabase sync). */
+  onGranted: () => void | Promise<void>;
+  errorMessage: string;
+  steps: string[];
+  mountedRef: React.MutableRefObject<boolean>;
+}
+
 function PermissionScreen({
+  stepNum,
   icon,
   iconColor,
   iconBg,
-  stepNum,
   title,
   description,
   openLabel,
   onOpen,
   onContinue,
+  onGranted,
+  errorMessage,
   steps,
-}: {
-  icon: React.ComponentProps<typeof Feather>['name'];
-  iconColor: string;
-  iconBg: string;
-  stepNum: number;
-  title: string;
-  description: string;
-  openLabel: string;
-  onOpen: () => void;
-  onContinue: () => void;
-  steps: string[];
-}) {
+  mountedRef,
+}: PermissionScreenProps) {
+  const [isChecking, setIsChecking] = useState(false);
+  const [denied, setDenied] = useState(false);
+
+  // ── Native check helper (shared by button + AppState) ──────────────────────
+  const runCheck = useCallback(async () => {
+    if (!mountedRef.current || isChecking) return;
+    setIsChecking(true);
+    setDenied(false);
+    try {
+      const granted = await onContinue();
+      if (!mountedRef.current) return;
+      if (granted) {
+        await onGranted();
+      } else {
+        setDenied(true);
+      }
+    } catch {
+      if (mountedRef.current) setDenied(true);
+    } finally {
+      if (mountedRef.current) setIsChecking(false);
+    }
+  }, [isChecking, onContinue, onGranted, mountedRef]);
+
+  // ── AppState listener: re-check 500 ms after returning from Settings ────────
+  useEffect(() => {
+    let prevState: AppStateStatus = AppState.currentState;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (prevState !== 'active' && next === 'active') {
+        setTimeout(() => {
+          if (mountedRef.current) runCheck();
+        }, 500);
+      }
+      prevState = next;
+    });
+    return () => sub.remove();
+  }, [runCheck, mountedRef]);
+
   return (
     <ScrollView
       style={styles.container}
@@ -148,6 +277,14 @@ function PermissionScreen({
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{description}</Text>
 
+      {/* Error banner */}
+      {denied && (
+        <View style={styles.errorBanner}>
+          <Feather name="alert-circle" size={16} color={Colors.warning} />
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        </View>
+      )}
+
       <Pressable
         style={({ pressed }) => [styles.openBtn, pressed && { opacity: 0.85 }]}
         onPress={onOpen}
@@ -157,11 +294,23 @@ function PermissionScreen({
       </Pressable>
 
       <Pressable
-        style={({ pressed }) => [styles.continueBtn, pressed && { opacity: 0.85 }]}
-        onPress={onContinue}
+        style={[styles.continueBtn, isChecking && styles.continueBtnLoading]}
+        onPress={runCheck}
+        disabled={isChecking}
       >
-        <Text style={styles.continueBtnText}>Continue</Text>
-        <Feather name="arrow-right" size={17} color={Colors.background} />
+        {isChecking ? (
+          <>
+            <ActivityIndicator size="small" color={Colors.background} />
+            <Text style={styles.continueBtnText}>Verifying…</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.continueBtnText}>
+              {denied ? 'Try Again' : 'Continue'}
+            </Text>
+            <Feather name="arrow-right" size={17} color={Colors.background} />
+          </>
+        )}
       </Pressable>
 
       <View style={styles.stepsCard}>
@@ -179,12 +328,25 @@ function PermissionScreen({
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   center: {
     flex: 1,
     backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    color: Colors.text,
+  },
+  loadingSubtext: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.textTertiary,
   },
 
   container: {
@@ -243,7 +405,26 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
-    marginBottom: 32,
+    marginBottom: 20,
+  },
+
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: Colors.warningMuted,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    width: '100%',
+    marginBottom: 16,
+  },
+  errorText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.warning,
+    flex: 1,
+    lineHeight: 19,
   },
 
   openBtn: {
@@ -275,6 +456,9 @@ const styles = StyleSheet.create({
     width: '100%',
     justifyContent: 'center',
     marginBottom: 24,
+  },
+  continueBtnLoading: {
+    opacity: 0.7,
   },
   continueBtnText: {
     fontFamily: 'Inter_700Bold',
