@@ -5,10 +5,9 @@
  *
  * Responsibilities:
  *   1. Fetch the first batch of device usage data (last 24 h).
- *   2. Upsert focus_profiles in Supabase:
- *        permissions_verified     = true
- *        initial_setup_complete   = true
- *        weekly_data              = today's usage totals
+ *   2. Write the profile row to Supabase:
+ *        • New user  → INSERT with all default fields + permissions_verified=true
+ *        • Returning → UPDATE only permission flags + merge weekly_data
  *   3. Write an initial app-config map to @focusguard_app_configs_v2 in
  *      AsyncStorage (if none exists yet).
  *
@@ -21,6 +20,11 @@
  *   ALTER TABLE focus_profiles
  *     ADD COLUMN IF NOT EXISTS permissions_verified     BOOLEAN DEFAULT false,
  *     ADD COLUMN IF NOT EXISTS initial_setup_complete   BOOLEAN DEFAULT false;
+ *
+ * Required RLS policies on focus_profiles (all use auth.uid() = id):
+ *   SELECT  — USING (auth.uid() = id)
+ *   INSERT  — WITH CHECK (auth.uid() = id)
+ *   UPDATE  — USING (auth.uid() = id)
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -36,11 +40,15 @@ export interface InitResult {
 }
 
 /**
- * Fetch device data and mark the user's Supabase profile as fully initialised.
- * Called once after both permissions are confirmed granted.
+ * Fetch device data and write / update the user's Supabase focus_profile.
  *
- * This is "best-effort" — a Supabase failure does not prevent the user from
- * entering the app, because local data is the primary source of truth.
+ * Strategy:
+ *   1. SELECT the existing row (maybeSingle — no error if absent).
+ *   2a. If no row   → INSERT with all fields (new user).
+ *   2b. If row exists → UPDATE only: permissions_verified, initial_setup_complete,
+ *       updated_at, and a merged weekly_data (preserves existing data).
+ *
+ * Best-effort: a Supabase failure does not prevent the user entering the app.
  */
 export async function initializeProfile(): Promise<InitResult> {
   try {
@@ -51,40 +59,87 @@ export async function initializeProfile(): Promise<InitResult> {
       return { success: false, error: 'Not signed in' };
     }
 
-    // Fetch device data in parallel — both calls are fire-and-forget safe
+    // ── 1. Fetch device data in parallel ──────────────────────────────────────
     const [statsResult, appsResult] = await Promise.allSettled([
       queryLast24hStats(),
       getInstalledApps(),
     ]);
 
-    const usageStats = statsResult.status === 'fulfilled' ? statsResult.value : [];
-    const installedApps = appsResult.status === 'fulfilled' ? appsResult.value : [];
+    const usageStats  = statsResult.status  === 'fulfilled' ? statsResult.value  : [];
+    const installedApps = appsResult.status === 'fulfilled' ? appsResult.value   : [];
 
-    // Build weekly_data with today's slot populated
     const totalMinutesToday = usageStats.reduce((sum, s) => sum + s.totalTimeMinutes, 0);
-    const weeklyData = Array(7).fill(0);
-    weeklyData[new Date().getDay()] = totalMinutesToday; // 0 = Sunday
+    const todayIndex = new Date().getDay(); // 0 = Sunday … 6 = Saturday
+    const now = new Date().toISOString();
 
-    // Upsert focus_profiles — permissions_verified + initial_setup_complete
-    const { error: upsertError } = await supabase
+    // ── 2. Read existing profile row ──────────────────────────────────────────
+    const { data: existing, error: selectError } = await supabase
       .from('focus_profiles')
-      .upsert(
-        {
-          id: user.id,
-          permissions_verified: true,
-          initial_setup_complete: true,
-          weekly_data: weeklyData,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' },
-      );
+      .select('weekly_data, streak_days, total_time_saved_minutes, wall_of_shame_total, leaderboard_opt_in')
+      .eq('id', user.id)
+      .maybeSingle();          // returns null (not an error) when no row exists
 
-    if (upsertError) {
-      console.warn('[ProfileInit] Supabase upsert error:', upsertError.message);
-      // Non-fatal — local device data still works without the cloud write
+    if (selectError) {
+      console.warn('[ProfileInit] SELECT error:', selectError.message);
+      // Continue — we will attempt an upsert anyway
     }
 
-    // Write default app configs if none exist yet
+    let supabaseError: string | null = null;
+
+    if (!existing) {
+      // ── 2a. New user — INSERT the full initial row ───────────────────────────
+      const freshWeeklyData = Array(7).fill(0);
+      freshWeeklyData[todayIndex] = totalMinutesToday;
+
+      const { error } = await supabase.from('focus_profiles').insert({
+        id:                     user.id,
+        permissions_verified:   true,
+        initial_setup_complete: true,
+        streak_days:            0,
+        total_time_saved_minutes: 0,
+        wall_of_shame_total:    0,
+        weekly_data:            freshWeeklyData,
+        leaderboard_opt_in:     false,
+        updated_at:             now,
+      });
+
+      if (error) {
+        supabaseError = error.message;
+        console.warn('[ProfileInit] INSERT error:', error.message);
+      }
+    } else {
+      // ── 2b. Existing user — UPDATE permission flags + merge weekly_data ──────
+      //
+      // Merge strategy: keep the existing slot values; replace today's slot
+      // with the freshly fetched device total (higher of the two).
+      const existingWeekly: number[] =
+        Array.isArray(existing.weekly_data) && existing.weekly_data.length === 7
+          ? (existing.weekly_data as number[])
+          : Array(7).fill(0);
+
+      const mergedWeekly = [...existingWeekly];
+      mergedWeekly[todayIndex] = Math.max(
+        mergedWeekly[todayIndex] ?? 0,
+        totalMinutesToday,
+      );
+
+      const { error } = await supabase
+        .from('focus_profiles')
+        .update({
+          permissions_verified:   true,
+          initial_setup_complete: true,
+          weekly_data:            mergedWeekly,
+          updated_at:             now,
+        })
+        .eq('id', user.id);
+
+      if (error) {
+        supabaseError = error.message;
+        console.warn('[ProfileInit] UPDATE error:', error.message);
+      }
+    }
+
+    // ── 3. Write default AsyncStorage app configs (once only) ─────────────────
     const existingConfigs = await AsyncStorage.getItem(APP_CONFIGS_KEY);
     if (!existingConfigs) {
       const userApps = installedApps.filter(a => !a.isSystemApp).slice(0, 30);
@@ -95,7 +150,10 @@ export async function initializeProfile(): Promise<InitResult> {
       await AsyncStorage.setItem(APP_CONFIGS_KEY, JSON.stringify(defaultConfigs));
     }
 
-    return { success: true };
+    return supabaseError
+      ? { success: false, error: supabaseError }
+      : { success: true };
+
   } catch (err) {
     console.warn('[ProfileInit] initializeProfile error:', err);
     return { success: false, error: String(err) };
@@ -103,11 +161,11 @@ export async function initializeProfile(): Promise<InitResult> {
 }
 
 /**
- * Check Supabase to see if this account already verified permissions on a
- * previous session.  If true, the PermissionGate is skipped entirely.
+ * Check Supabase to see if this account already verified permissions.
+ * Returns true  → PermissionGate is skipped (returning verified user).
+ * Returns false → gate is shown (new user, offline, or column not yet migrated).
  *
- * Resolves to false on any error (network offline, unauthenticated, column
- * not yet added via migration) — the gate is shown and the user re-verifies.
+ * Uses maybeSingle() so a missing row is null, not an error.
  */
 export async function checkPermissionsAlreadyVerified(): Promise<boolean> {
   try {
@@ -120,10 +178,14 @@ export async function checkPermissionsAlreadyVerified(): Promise<boolean> {
       .from('focus_profiles')
       .select('permissions_verified')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();          // null when row absent — not an error
 
-    if (error || !data) return false;
-    return (data as any).permissions_verified === true;
+    if (error) {
+      console.warn('[ProfileInit] checkPermissionsAlreadyVerified error:', error.message);
+      return false;
+    }
+
+    return data?.permissions_verified === true;
   } catch {
     return false;
   }
