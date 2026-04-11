@@ -11,16 +11,22 @@
  * no app lists, no stats.  The gate shows clear instructions for each step.
  *
  * On iOS and web both permissions are irrelevant; the gate is transparent.
- * Re-checks automatically every time the user returns from Android Settings.
  *
- * Resilience:
- *   • Native calls are raced against a 10-second timeout so the spinner can
- *     never hang forever (seen on Xiaomi/MIUI where canDrawOverlays() may
- *     block or return stale values).
- *   • After 2 consecutive failed "Continue" presses, an escape-hatch link
- *     appears so the user can force-advance past the broken native check.
- *     This is offered only for the overlay step because the usage check must
- *     genuinely pass for app-tracking data to exist.
+ * Permission detection strategy:
+ *
+ *   • The native module calls Settings.canDrawOverlays() + AppOpsManager as a
+ *     dual-path check (covers Xiaomi MIUI devices).
+ *   • An AppState listener re-checks every time the app moves from background
+ *     to active.  A 500 ms settle delay is inserted before calling the native
+ *     API because some Android versions take a moment to commit settings writes.
+ *   • The Continue button's disabled prop is tied to real-time overlayGranted
+ *     state — disabled while a check is in flight or when the permission was
+ *     just confirmed absent.  It re-enables once the user has granted access and
+ *     returned (AppState auto-advance fires first in the happy path).
+ *   • After one consecutive failed "Continue" press an escape-hatch link appears
+ *     so the user can force-advance past a broken native check (MIUI edge case).
+ *   • All native calls are raced against a 10-second timeout so the spinner
+ *     can never hang forever.
  */
 
 import { Feather } from '@expo/vector-icons';
@@ -28,6 +34,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
+  AppStateStatus,
   Platform,
   Pressable,
   ScrollView,
@@ -49,7 +56,7 @@ interface PermissionGateProps {
   children: React.ReactNode;
 }
 
-/** Race a promise against a ms timeout. Resolves to the value or rejects. */
+/** Race a promise against a ms timeout. */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     promise,
@@ -61,6 +68,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 export function PermissionGate({ children }: PermissionGateProps) {
   const [gateState, setGateState] = useState<GateState>('checking');
+  /**
+   * Real-time overlay permission state:
+   *   null  = not yet determined (initial / after timeout failure)
+   *   false = native check returned denied
+   *   true  = native check returned granted
+   */
+  const [overlayGranted, setOverlayGranted] = useState<boolean | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -68,6 +82,26 @@ export function PermissionGate({ children }: PermissionGateProps) {
     return () => { mountedRef.current = false; };
   }, []);
 
+  /**
+   * Run the overlay-specific native check and update overlayGranted state.
+   * Returns the boolean result so callers can act on it directly.
+   */
+  const checkOverlayNative = useCallback(async (): Promise<boolean> => {
+    try {
+      const result = await withTimeout(checkOverlayPermission(), 10_000);
+      if (mountedRef.current) setOverlayGranted(result);
+      return result;
+    } catch {
+      // Timeout — do not mark as denied; leave prior state intact
+      return false;
+    }
+  }, []);
+
+  /**
+   * Full two-step permission check.  When silent=true the gate stays on its
+   * current screen while checking (no spinner flash).  When silent=false it
+   * shows the "Verifying…" spinner — used only on the initial cold-start check.
+   */
   const check = useCallback(async (silent = false) => {
     if (!mountedRef.current) return;
     if (!silent) setGateState('checking');
@@ -83,7 +117,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
 
       try { await markUsageGranted(); } catch {}
 
-      const overlayOk = await withTimeout(checkOverlayPermission(), 10_000);
+      const overlayOk = await checkOverlayNative();
       if (!mountedRef.current) return;
 
       if (!overlayOk) {
@@ -95,7 +129,18 @@ export function PermissionGate({ children }: PermissionGateProps) {
     } catch {
       if (mountedRef.current) setGateState('need_overlay');
     }
-  }, []);
+  }, [checkOverlayNative]);
+
+  /**
+   * Automatically advance to 'granted' whenever overlayGranted flips to true
+   * while we are on the need_overlay screen.  This covers the AppState path
+   * where the user granted permission in Settings and returned.
+   */
+  useEffect(() => {
+    if (overlayGranted === true && gateState === 'need_overlay') {
+      setGateState('granted');
+    }
+  }, [overlayGranted, gateState]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -103,11 +148,26 @@ export function PermissionGate({ children }: PermissionGateProps) {
       return;
     }
 
+    // Cold-start check (shows spinner)
     check();
 
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') check();
+    let previousAppState: AppStateStatus = AppState.currentState;
+
+    /**
+     * AppState lifecycle sync:
+     * Re-check every time the app moves from background → active.
+     * The 500 ms delay allows Android's settings database to commit
+     * the SYSTEM_ALERT_WINDOW grant before we query it.
+     */
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (previousAppState !== 'active' && nextState === 'active') {
+        setTimeout(() => {
+          if (mountedRef.current) check(true); // silent — no spinner flash
+        }, 500);
+      }
+      previousAppState = nextState;
     });
+
     return () => sub.remove();
   }, [check]);
 
@@ -148,6 +208,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
     );
   }
 
+  // need_overlay
   return (
     <PermissionScreen
       icon="layers"
@@ -162,6 +223,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
       onPrimary={() => openOverlaySettings()}
       onRecheck={() => check(true)}
       onForceGrant={() => setGateState('granted')}
+      overlayGranted={overlayGranted}
       steps={[
         'Tap "Open Overlay Settings" below',
         'Find FocusGuard in the list',
@@ -183,6 +245,7 @@ function PermissionScreen({
   onPrimary,
   onRecheck,
   onForceGrant,
+  overlayGranted,
   steps,
 }: {
   icon: React.ComponentProps<typeof Feather>['name'];
@@ -193,24 +256,36 @@ function PermissionScreen({
   description: string;
   primaryLabel: string;
   onPrimary: () => void;
-  onRecheck: () => Promise<void>;
+  onRecheck: () => void;
   onForceGrant?: () => void;
+  overlayGranted?: boolean | null;
   steps: string[];
 }) {
   const [isChecking, setIsChecking] = useState(false);
   const [failureCount, setFailureCount] = useState(0);
 
+  /**
+   * Manual re-check triggered by tapping Continue.
+   *
+   * We insert a 500 ms settle delay here too — in case the user tapped Continue
+   * immediately after returning from Settings without waiting for AppState to
+   * fire (e.g. they used the back-gesture very quickly).
+   */
   const handleContinue = async () => {
     if (isChecking) return;
     setIsChecking(true);
     let failed = false;
     try {
       await new Promise<void>(r => setTimeout(r, 500));
-      await withTimeout(onRecheck(), 10_000);
-      // If we get here and are still mounted, the check did not advance the gate.
+      await withTimeout(
+        Promise.resolve(onRecheck()),
+        10_000,
+      );
+      // onRecheck() resolves without throwing when the check runs but the gate
+      // did NOT advance (permission still denied).
       failed = true;
     } catch {
-      // Timeout or error — treat as a failed check.
+      // Timeout or unexpected error — treat as failed check.
       failed = true;
     } finally {
       setIsChecking(false);
@@ -219,6 +294,21 @@ function PermissionScreen({
       setFailureCount(prev => prev + 1);
     }
   };
+
+  /**
+   * The Continue button is disabled when:
+   *   • a check is actively in flight (isChecking), or
+   *   • the native API has definitively returned false AND the user has not
+   *     yet tried tapping Continue (failureCount === 0 and overlayGranted is
+   *     known false) — guides them to open Settings first.
+   *
+   * It re-enables once:
+   *   • overlayGranted is null (unknown) or the user has already tried once
+   *     (failureCount > 0) so they can manually re-check.
+   */
+  const continueDisabled =
+    isChecking ||
+    (overlayGranted === false && failureCount === 0);
 
   const showEscape = onForceGrant != null && failureCount >= 1;
 
@@ -245,6 +335,26 @@ function PermissionScreen({
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{description}</Text>
 
+      {/* Status badge — shows live permission state when known */}
+      {overlayGranted !== undefined && overlayGranted !== null && (
+        <View style={[
+          styles.statusBadge,
+          overlayGranted ? styles.statusBadgeGranted : styles.statusBadgeDenied,
+        ]}>
+          <Feather
+            name={overlayGranted ? 'check-circle' : 'x-circle'}
+            size={14}
+            color={overlayGranted ? Colors.accent : Colors.warning}
+          />
+          <Text style={[
+            styles.statusBadgeText,
+            { color: overlayGranted ? Colors.accent : Colors.warning },
+          ]}>
+            {overlayGranted ? 'Permission granted' : 'Permission not yet granted'}
+          </Text>
+        </View>
+      )}
+
       <Pressable
         style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.85 }]}
         onPress={onPrimary}
@@ -254,9 +364,12 @@ function PermissionScreen({
       </Pressable>
 
       <Pressable
-        style={[styles.continueBtn, isChecking && styles.continueBtnChecking]}
+        style={[
+          styles.continueBtn,
+          continueDisabled && styles.continueBtnDisabled,
+        ]}
         onPress={handleContinue}
-        disabled={isChecking}
+        disabled={continueDisabled}
       >
         {isChecking ? (
           <>
@@ -265,8 +378,14 @@ function PermissionScreen({
           </>
         ) : (
           <>
-            <Text style={styles.continueBtnText}>Continue</Text>
-            <Feather name="arrow-right" size={17} color={Colors.background} />
+            <Text style={styles.continueBtnText}>
+              {overlayGranted === false && failureCount === 0
+                ? 'Grant permission above first'
+                : 'Continue'}
+            </Text>
+            {!(overlayGranted === false && failureCount === 0) && (
+              <Feather name="arrow-right" size={17} color={Colors.background} />
+            )}
           </>
         )}
       </Pressable>
@@ -375,7 +494,27 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
-    marginBottom: 32,
+    marginBottom: 20,
+  },
+
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginBottom: 16,
+  },
+  statusBadgeGranted: {
+    backgroundColor: Colors.accentMuted,
+  },
+  statusBadgeDenied: {
+    backgroundColor: Colors.warningMuted,
+  },
+  statusBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
   },
 
   primaryBtn: {
@@ -407,8 +546,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 12,
   },
-  continueBtnChecking: {
-    opacity: 0.7,
+  continueBtnDisabled: {
+    opacity: 0.45,
   },
   continueBtnText: {
     fontFamily: 'Inter_700Bold',
