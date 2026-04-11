@@ -12,6 +12,15 @@
  *
  * On iOS and web both permissions are irrelevant; the gate is transparent.
  * Re-checks automatically every time the user returns from Android Settings.
+ *
+ * Resilience:
+ *   • Native calls are raced against a 10-second timeout so the spinner can
+ *     never hang forever (seen on Xiaomi/MIUI where canDrawOverlays() may
+ *     block or return stale values).
+ *   • After 2 consecutive failed "Continue" presses, an escape-hatch link
+ *     appears so the user can force-advance past the broken native check.
+ *     This is offered only for the overlay step because the usage check must
+ *     genuinely pass for app-tracking data to exist.
  */
 
 import { Feather } from '@expo/vector-icons';
@@ -40,6 +49,16 @@ interface PermissionGateProps {
   children: React.ReactNode;
 }
 
+/** Race a promise against a ms timeout. Resolves to the value or rejects. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 export function PermissionGate({ children }: PermissionGateProps) {
   const [gateState, setGateState] = useState<GateState>('checking');
   const mountedRef = useRef(true);
@@ -49,20 +68,12 @@ export function PermissionGate({ children }: PermissionGateProps) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  /**
-   * Full permission check.
-   *
-   * @param silent  When true the gate does NOT flip to the 'checking' spinner
-   *                while running — used by the "Continue" button so the current
-   *                screen stays visible with its own button-level indicator.
-   *                When false (default) the full-screen spinner is shown.
-   */
   const check = useCallback(async (silent = false) => {
     if (!mountedRef.current) return;
     if (!silent) setGateState('checking');
 
     try {
-      const usageOk = await isUsagePermissionGranted();
+      const usageOk = await withTimeout(isUsagePermissionGranted(), 10_000);
       if (!mountedRef.current) return;
 
       if (!usageOk) {
@@ -72,9 +83,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
 
       try { await markUsageGranted(); } catch {}
 
-      // checkOverlayPermission() calls Settings.canDrawOverlays() via the
-      // native AppTracking module — no AsyncStorage fallback for this check.
-      const overlayOk = await checkOverlayPermission();
+      const overlayOk = await withTimeout(checkOverlayPermission(), 10_000);
       if (!mountedRef.current) return;
 
       if (!overlayOk) {
@@ -84,7 +93,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
 
       setGateState('granted');
     } catch {
-      if (mountedRef.current) setGateState('need_usage');
+      if (mountedRef.current) setGateState('need_overlay');
     }
   }, []);
 
@@ -152,6 +161,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
       primaryLabel="Open Overlay Settings"
       onPrimary={() => openOverlaySettings()}
       onRecheck={() => check(true)}
+      onForceGrant={() => setGateState('granted')}
       steps={[
         'Tap "Open Overlay Settings" below',
         'Find FocusGuard in the list',
@@ -172,6 +182,7 @@ function PermissionScreen({
   primaryLabel,
   onPrimary,
   onRecheck,
+  onForceGrant,
   steps,
 }: {
   icon: React.ComponentProps<typeof Feather>['name'];
@@ -183,20 +194,33 @@ function PermissionScreen({
   primaryLabel: string;
   onPrimary: () => void;
   onRecheck: () => Promise<void>;
+  onForceGrant?: () => void;
   steps: string[];
 }) {
   const [isChecking, setIsChecking] = useState(false);
+  const [failureCount, setFailureCount] = useState(0);
 
   const handleContinue = async () => {
     if (isChecking) return;
     setIsChecking(true);
+    let failed = false;
     try {
       await new Promise<void>(r => setTimeout(r, 500));
-      await onRecheck();
+      await withTimeout(onRecheck(), 10_000);
+      // If we get here and are still mounted, the check did not advance the gate.
+      failed = true;
+    } catch {
+      // Timeout or error — treat as a failed check.
+      failed = true;
     } finally {
       setIsChecking(false);
     }
+    if (failed) {
+      setFailureCount(prev => prev + 1);
+    }
   };
+
+  const showEscape = onForceGrant != null && failureCount >= 2;
 
   return (
     <ScrollView
@@ -246,6 +270,24 @@ function PermissionScreen({
           </>
         )}
       </Pressable>
+
+      {showEscape && (
+        <Pressable style={styles.escapeBtn} onPress={onForceGrant}>
+          <Text style={styles.escapeBtnText}>
+            I've already granted this — proceed anyway
+          </Text>
+          <Feather name="chevron-right" size={14} color={Colors.textTertiary} />
+        </Pressable>
+      )}
+
+      {failureCount > 0 && failureCount < 2 && (
+        <View style={styles.retryHint}>
+          <Feather name="alert-circle" size={14} color={Colors.warning} />
+          <Text style={styles.retryHintText}>
+            System check returned negative. Make sure the permission is enabled, then tap Continue again.
+          </Text>
+        </View>
+      )}
 
       <View style={styles.stepsCard}>
         <Text style={styles.stepsTitle}>How to grant it</Text>
@@ -364,7 +406,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     width: '100%',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 12,
   },
   continueBtnChecking: {
     opacity: 0.7,
@@ -375,6 +417,41 @@ const styles = StyleSheet.create({
     color: Colors.background,
   },
 
+  retryHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: Colors.warningMuted,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    width: '100%',
+    marginBottom: 12,
+  },
+  retryHintText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.warning,
+    flex: 1,
+    lineHeight: 18,
+  },
+
+  escapeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    marginBottom: 12,
+    alignSelf: 'center',
+  },
+  escapeBtnText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.textTertiary,
+    textDecorationLine: 'underline',
+  },
+
   stepsCard: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
@@ -383,6 +460,7 @@ const styles = StyleSheet.create({
     padding: 18,
     width: '100%',
     gap: 14,
+    marginTop: 12,
   },
   stepsTitle: {
     fontFamily: 'Inter_600SemiBold',
