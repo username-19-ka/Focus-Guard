@@ -67,6 +67,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 export function PermissionGate({ children }: PermissionGateProps) {
+  // Permission gate bypassed — render children immediately
+  return <>{children}</>;
+
+  // eslint-disable-next-line no-unreachable
   const [gateState, setGateState] = useState<GateState>('checking');
   /**
    * Real-time overlay permission state:
