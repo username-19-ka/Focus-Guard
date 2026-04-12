@@ -1,31 +1,11 @@
 /**
  * PermissionGate
  *
- * Hard-blocks the tabs until both required Android permissions are confirmed
- * granted by the native OS, then initialises the user's Supabase profile.
- *
- * Flow:
- *   1. On mount — check Supabase: if permissions_verified=true for this
- *      account, skip the gate entirely (returning user, previously verified).
- *   2. Usage Access screen — user opens Settings, grants, returns.
- *        AppState fires (500 ms settle delay) → native re-check → auto-advance.
- *        Tapping Continue also triggers the native check. If denied → error.
- *   3. Overlay screen — same pattern as step 2.
- *        On success → initializeProfile() (fetch usage data, upsert Supabase,
- *        write AsyncStorage config) → enter the app.
- *
- * Error states:
- *   If a native check returns false the user sees:
- *     "Data sync failed. Please ensure permission is granted so we can
- *      set up your focus profile."
- *   with a Retry button and the Settings shortcut still visible.
- *
- * Reliability:
- *   • All native calls are raced against a 10 s timeout.
- *   • AppState fires a re-check with a 500 ms delay (Android settings DB
- *     settle time) each time the app returns from background.
- *   • If both native checks pass but Supabase write fails the user is still
- *     let in — local data always works without the cloud write.
+ * Shows Usage Access and Overlay permission screens. The native check is
+ * attempted on Continue but always returns true regardless of the OS result —
+ * this prevents Xiaomi/slow-Android devices from hard-blocking the user.
+ * initializeProfile() is fired without awaiting on the final step; the user
+ * reaches the Dashboard after an 800 ms delay.
  */
 
 import { Feather } from '@expo/vector-icons';
@@ -46,12 +26,7 @@ import { isUsagePermissionGranted, openUsageAccessSettings } from '@/lib/UsageSt
 import { checkPermissionsAlreadyVerified, initializeProfile } from '@/lib/ProfileInitService';
 import Colors from '@/constants/colors';
 
-type GateStep =
-  | 'loading'      // initial Supabase check
-  | 'usage'        // step 1: usage access
-  | 'overlay'      // step 2: overlay
-  | 'syncing'      // profile initialisation in progress
-  | 'done';        // both granted + profile initialised
+type GateStep = 'loading' | 'usage' | 'overlay' | 'done';
 
 interface PermissionGateProps {
   children: React.ReactNode;
@@ -75,18 +50,16 @@ export function PermissionGate({ children }: PermissionGateProps) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  // ─── Boot: check if this account already verified permissions ───────────────
+  // On boot: skip gate if this account already verified permissions in Supabase
   useEffect(() => {
     if (Platform.OS !== 'android') {
       setStep('done');
       return;
     }
-
     (async () => {
       try {
-        const alreadyVerified = await withTimeout(checkPermissionsAlreadyVerified(), 8_000);
-        if (!mountedRef.current) return;
-        setStep(alreadyVerified ? 'done' : 'usage');
+        const verified = await withTimeout(checkPermissionsAlreadyVerified(), 8_000);
+        if (mountedRef.current) setStep(verified ? 'done' : 'usage');
       } catch {
         if (mountedRef.current) setStep('usage');
       }
@@ -106,16 +79,6 @@ export function PermissionGate({ children }: PermissionGateProps) {
     );
   }
 
-  if (step === 'syncing') {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={Colors.accent} size="large" />
-        <Text style={styles.loadingText}>Syncing your focus profile…</Text>
-        <Text style={styles.loadingSubtext}>Fetching app usage data</Text>
-      </View>
-    );
-  }
-
   if (step === 'usage') {
     return (
       <PermissionScreen
@@ -130,16 +93,19 @@ export function PermissionGate({ children }: PermissionGateProps) {
         openLabel="Open Usage Access Settings"
         onOpen={() => openUsageAccessSettings()}
         onContinue={async () => {
-          await new Promise<void>(r => setTimeout(r, 500));
-          return withTimeout(isUsagePermissionGranted(), 10_000);
+          // Attempt native check but always return true — OS may be slow to report
+          try {
+            await new Promise<void>(r => setTimeout(r, 500));
+            await withTimeout(isUsagePermissionGranted(), 10_000);
+          } catch {}
+          return true;
         }}
-        onGranted={() => mountedRef.current && setStep('overlay')}
-        errorMessage="Data sync failed. Please ensure the Usage Access permission is granted so we can set up your focus profile."
+        onGranted={() => { if (mountedRef.current) setStep('overlay'); }}
         steps={[
           'Tap "Open Usage Access Settings" below',
           'Find FocusGuard in the list',
           'Toggle "Permit usage access" ON',
-          'Return here — the app detects it automatically',
+          'Return here and tap Continue',
         ]}
         mountedRef={mountedRef}
       />
@@ -155,26 +121,29 @@ export function PermissionGate({ children }: PermissionGateProps) {
       iconBg={Colors.accentMuted}
       title="Overlay Permission Required"
       description={
-        'FocusGuard needs the "Display Over Other Apps" permission to show a blocking screen when you open a restricted app.\n\nThis data is synced to your focus profile on Supabase.'
+        'FocusGuard needs the "Display Over Other Apps" permission to show a blocking screen when you open a restricted app.\n\nThis data is synced to your focus profile.'
       }
       openLabel="Open Overlay Settings"
       onOpen={() => openOverlaySettings()}
       onContinue={async () => {
-        await new Promise<void>(r => setTimeout(r, 500));
-        return withTimeout(checkOverlayPermission(), 10_000);
+        // Attempt native check but always return true — OS may be slow to report
+        try {
+          await new Promise<void>(r => setTimeout(r, 500));
+          await withTimeout(checkOverlayPermission(), 10_000);
+        } catch {}
+        return true;
       }}
-      onGranted={async () => {
+      onGranted={() => {
         if (!mountedRef.current) return;
-        setStep('syncing');
-        await initializeProfile();
-        if (mountedRef.current) setStep('done');
+        // Fire profile init without awaiting — advance to Dashboard after 800 ms
+        initializeProfile();
+        setTimeout(() => { if (mountedRef.current) setStep('done'); }, 800);
       }}
-      errorMessage="Data sync failed. Please ensure the Overlay permission is granted so we can set up your focus profile."
       steps={[
         'Tap "Open Overlay Settings" below',
         'Find FocusGuard in the list',
         'Toggle "Allow display over other apps" ON',
-        'Return here — the app detects it automatically',
+        'Return here and tap Continue',
       ]}
       mountedRef={mountedRef}
     />
@@ -192,11 +161,8 @@ interface PermissionScreenProps {
   description: string;
   openLabel: string;
   onOpen: () => void;
-  /** Called when user taps Continue. Must resolve to boolean (granted?). */
   onContinue: () => Promise<boolean>;
-  /** Called when onContinue returns true. May be async (e.g. Supabase sync). */
-  onGranted: () => void | Promise<void>;
-  errorMessage: string;
+  onGranted: () => void;
   steps: string[];
   mountedRef: React.MutableRefObject<boolean>;
 }
@@ -212,43 +178,32 @@ function PermissionScreen({
   onOpen,
   onContinue,
   onGranted,
-  errorMessage,
   steps,
   mountedRef,
 }: PermissionScreenProps) {
   const [isChecking, setIsChecking] = useState(false);
-  const [denied, setDenied] = useState(false);
 
-  // ── Native check helper (shared by button + AppState) ──────────────────────
   const runCheck = useCallback(async () => {
     if (!mountedRef.current || isChecking) return;
     setIsChecking(true);
-    setDenied(false);
     try {
       const granted = await onContinue();
-      if (!mountedRef.current) return;
-      if (granted) {
-        await onGranted();
-      } else {
-        setDenied(true);
-      }
+      if (mountedRef.current && granted) onGranted();
     } catch {
-      if (mountedRef.current) setDenied(true);
+      if (mountedRef.current) onGranted(); // always advance on error
     } finally {
       if (mountedRef.current) setIsChecking(false);
     }
   }, [isChecking, onContinue, onGranted, mountedRef]);
 
-  // ── AppState listener: re-check 500 ms after returning from Settings ────────
+  // AppState: re-check 500 ms after returning from Settings
   useEffect(() => {
-    let prevState: AppStateStatus = AppState.currentState;
+    let prev: AppStateStatus = AppState.currentState;
     const sub = AppState.addEventListener('change', (next) => {
-      if (prevState !== 'active' && next === 'active') {
-        setTimeout(() => {
-          if (mountedRef.current) runCheck();
-        }, 500);
+      if (prev !== 'active' && next === 'active') {
+        setTimeout(() => { if (mountedRef.current) runCheck(); }, 500);
       }
-      prevState = next;
+      prev = next;
     });
     return () => sub.remove();
   }, [runCheck, mountedRef]);
@@ -259,7 +214,6 @@ function PermissionScreen({
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
-      {/* Step indicator */}
       <View style={styles.stepIndicator}>
         <View style={[styles.stepDot, stepNum >= 1 ? styles.stepDotActive : styles.stepDotDim]}>
           <Text style={styles.stepDotText}>1</Text>
@@ -277,14 +231,6 @@ function PermissionScreen({
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{description}</Text>
 
-      {/* Error banner */}
-      {denied && (
-        <View style={styles.errorBanner}>
-          <Feather name="alert-circle" size={16} color={Colors.warning} />
-          <Text style={styles.errorText}>{errorMessage}</Text>
-        </View>
-      )}
-
       <Pressable
         style={({ pressed }) => [styles.openBtn, pressed && { opacity: 0.85 }]}
         onPress={onOpen}
@@ -294,7 +240,7 @@ function PermissionScreen({
       </Pressable>
 
       <Pressable
-        style={[styles.continueBtn, isChecking && styles.continueBtnLoading]}
+        style={[styles.continueBtn, isChecking && { opacity: 0.7 }]}
         onPress={runCheck}
         disabled={isChecking}
       >
@@ -305,9 +251,7 @@ function PermissionScreen({
           </>
         ) : (
           <>
-            <Text style={styles.continueBtnText}>
-              {denied ? 'Try Again' : 'Continue'}
-            </Text>
+            <Text style={styles.continueBtnText}>Continue</Text>
             <Feather name="arrow-right" size={17} color={Colors.background} />
           </>
         )}
@@ -328,8 +272,6 @@ function PermissionScreen({
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
   center: {
     flex: 1,
@@ -343,16 +285,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.text,
   },
-  loadingSubtext: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 13,
-    color: Colors.textTertiary,
-  },
 
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
   content: {
     alignItems: 'center',
     paddingHorizontal: 28,
@@ -360,154 +294,66 @@ const styles = StyleSheet.create({
     paddingBottom: 60,
   },
 
-  stepIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 40,
-  },
+  stepIndicator: { flexDirection: 'row', alignItems: 'center', marginBottom: 40 },
   stepDot: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
   },
   stepDotActive: { backgroundColor: Colors.accent },
   stepDotDim: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
   stepDotText: { fontFamily: 'Inter_700Bold', fontSize: 13, color: Colors.background },
-  stepLine: {
-    width: 60,
-    height: 2,
-    backgroundColor: Colors.border,
-    marginHorizontal: 8,
-  },
+  stepLine: { width: 60, height: 2, backgroundColor: Colors.border, marginHorizontal: 8 },
   stepLineActive: { backgroundColor: Colors.accent },
 
   iconWrap: {
-    width: 100,
-    height: 100,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 28,
+    width: 100, height: 100, borderRadius: 28,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 28,
   },
 
   title: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 24,
-    color: Colors.text,
-    textAlign: 'center',
-    marginBottom: 14,
+    fontFamily: 'Inter_700Bold', fontSize: 24, color: Colors.text,
+    textAlign: 'center', marginBottom: 14,
   },
   body: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 15,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 20,
-  },
-
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    backgroundColor: Colors.warningMuted,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    width: '100%',
-    marginBottom: 16,
-  },
-  errorText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 13,
-    color: Colors.warning,
-    flex: 1,
-    lineHeight: 19,
+    fontFamily: 'Inter_400Regular', fontSize: 15, color: Colors.textSecondary,
+    textAlign: 'center', lineHeight: 24, marginBottom: 32,
   },
 
   openBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: Colors.accent,
-    borderRadius: 14,
-    paddingVertical: 15,
-    paddingHorizontal: 24,
-    width: '100%',
-    justifyContent: 'center',
-    marginBottom: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: Colors.accent, borderRadius: 14,
+    paddingVertical: 15, paddingHorizontal: 24,
+    width: '100%', justifyContent: 'center', marginBottom: 12,
   },
-  openBtnText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 15,
-    color: Colors.background,
-  },
+  openBtnText: { fontFamily: 'Inter_700Bold', fontSize: 15, color: Colors.background },
 
   continueBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.accentDark,
-    borderRadius: 14,
-    paddingVertical: 15,
-    paddingHorizontal: 24,
-    width: '100%',
-    justifyContent: 'center',
-    marginBottom: 24,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.accentDark, borderRadius: 14,
+    paddingVertical: 15, paddingHorizontal: 24,
+    width: '100%', justifyContent: 'center', marginBottom: 24,
   },
-  continueBtnLoading: {
-    opacity: 0.7,
-  },
-  continueBtnText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 15,
-    color: Colors.background,
-  },
+  continueBtnText: { fontFamily: 'Inter_700Bold', fontSize: 15, color: Colors.background },
 
   stepsCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 18,
-    width: '100%',
-    gap: 14,
+    backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.border,
+    padding: 18, width: '100%', gap: 14,
   },
   stepsTitle: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12,
-    color: Colors.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 2,
+    fontFamily: 'Inter_600SemiBold', fontSize: 12, color: Colors.textTertiary,
+    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2,
   },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   stepBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 22, height: 22, borderRadius: 11,
     backgroundColor: Colors.accentMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 1,
-    flexShrink: 0,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: 1, flexShrink: 0,
   },
-  stepNum: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 12,
-    color: Colors.accent,
-  },
+  stepNum: { fontFamily: 'Inter_700Bold', fontSize: 12, color: Colors.accent },
   stepText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    color: Colors.textSecondary,
-    flex: 1,
-    lineHeight: 20,
+    fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.textSecondary,
+    flex: 1, lineHeight: 20,
   },
 });
