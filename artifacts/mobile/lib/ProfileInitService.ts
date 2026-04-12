@@ -21,6 +21,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
 import { supabase } from './supabase';
 import { queryLast24hStats } from './UsageStatsService';
 import { getInstalledApps } from '@/modules/app-tracking';
@@ -88,7 +89,17 @@ export async function initializeProfile(): Promise<InitResult> {
     );
 
     if (error) {
-      console.warn('[ProfileInit] upsert error (non-fatal):', error.message);
+      const detail = JSON.stringify({
+        message:  error.message,
+        code:     error.code,
+        details:  error.details,
+        hint:     error.hint,
+        userId:   user.id,
+      }, null, 2);
+      console.error('[ProfileInit] upsert FAILED:\n', detail);
+      Alert.alert('Upsert Error', detail);
+    } else {
+      console.log('[ProfileInit] upsert OK — userId:', user.id);
     }
 
     // Write default AsyncStorage app configs if none exist yet
