@@ -10,6 +10,19 @@ const config = getDefaultConfig(projectRoot);
 
 config.watchFolders = [workspaceRoot];
 
+// Exclude transient platform folders that can disappear mid-run and crash
+// Metro's FallbackWatcher with ENOENT.
+const existingBlockList = config.resolver.blockList;
+const extraBlocks = [
+  /.*\/\.local\/.*/,
+  /.*\/\.replit\/.*/,
+];
+config.resolver.blockList = Array.isArray(existingBlockList)
+  ? [...existingBlockList, ...extraBlocks]
+  : existingBlockList
+  ? [existingBlockList, ...extraBlocks]
+  : extraBlocks;
+
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
