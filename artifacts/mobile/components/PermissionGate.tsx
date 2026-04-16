@@ -133,7 +133,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
           await new Promise<void>(r => setTimeout(r, 500));
           return withTimeout(isUsagePermissionGranted(), 10_000);
         }}
-        onGranted={() => mountedRef.current && setStep('overlay')}
+        onGranted={() => { if (mountedRef.current) setStep('overlay'); }}
         errorMessage="Data sync failed. Please ensure the Usage Access permission is granted so we can set up your focus profile."
         steps={[
           'Tap "Open Usage Access Settings" below',
@@ -219,9 +219,15 @@ function PermissionScreen({
   const [isChecking, setIsChecking] = useState(false);
   const [denied, setDenied] = useState(false);
 
+  // FIX: use a ref to track isChecking so the AppState listener always
+  // has the latest value without needing to recreate runCheck on every render.
+  const isCheckingRef = useRef(false);
+
   // ── Native check helper (shared by button + AppState) ──────────────────────
   const runCheck = useCallback(async () => {
-    if (!mountedRef.current || isChecking) return;
+    // FIX: use isCheckingRef instead of isChecking to avoid stale closure
+    if (!mountedRef.current || isCheckingRef.current) return;
+    isCheckingRef.current = true;
     setIsChecking(true);
     setDenied(false);
     try {
@@ -235,9 +241,14 @@ function PermissionScreen({
     } catch {
       if (mountedRef.current) setDenied(true);
     } finally {
+      // FIX: reset both ref and state
+      isCheckingRef.current = false;
       if (mountedRef.current) setIsChecking(false);
     }
-  }, [isChecking, onContinue, onGranted, mountedRef]);
+  // FIX: removed isChecking from dependency array — it caused runCheck to be
+  // recreated on every render, which made the AppState listener hold a stale
+  // reference and prevented navigation after granting permission.
+  }, [onContinue, onGranted, mountedRef]);
 
   // ── AppState listener: re-check 500 ms after returning from Settings ────────
   useEffect(() => {

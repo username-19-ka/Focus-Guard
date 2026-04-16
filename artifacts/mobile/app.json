@@ -71,6 +71,14 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "bd0f1dfb-667e-4c51-bb4c-e0f13f60515c"
+      }
     }
   }
 }
